@@ -1,7 +1,7 @@
 """CrewAI adapter — build Agents and a Crew from common inputs.
 
 Uses our provider factory's ``get_crewai_llm`` so the same provider ids work
-across frameworks. Requires ``agentx[crewai]``.
+across frameworks. Requires ``agentx-kit[crewai]``.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def _require_crewai():
         return crewai
     except ImportError as exc:
         raise ImportError(
-            "CrewAI is required. Install with: uv pip install 'agentx[crewai]'"
+            "CrewAI is required. Install with: uv pip install 'agentx-kit[crewai]'"
         ) from exc
 
 

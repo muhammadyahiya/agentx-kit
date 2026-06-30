@@ -52,7 +52,7 @@ Two factory functions:
 - `get_chat_model(provider, model=None, **kw) -> BaseChatModel` (LangChain/LangGraph).
 - `get_crewai_llm(provider, model=None, **kw) -> crewai.LLM` (CrewAI; routes via LiteLLM).
 
-Imports are **lazy** — installing `agentx[openai]` only is enough to use OpenAI; nothing else is imported until requested. A clear error tells you the exact extra to install.
+Imports are **lazy** — installing `agentx-kit[openai]` only is enough to use OpenAI; nothing else is imported until requested. A clear error tells you the exact extra to install.
 
 ## 2. Frameworks (`agentx/frameworks`)
 

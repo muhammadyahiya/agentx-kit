@@ -43,7 +43,7 @@ def load_mcp_tools(config: str | Path | dict | None) -> list[Any]:
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
     except ImportError:
-        logger.warning("langchain-mcp-adapters not installed; run `uv pip install 'agentx[mcp]'`.")
+        logger.warning("langchain-mcp-adapters not installed; run `uv pip install 'agentx-kit[mcp]'`.")
         return []
 
     async def _gather() -> list[Any]:

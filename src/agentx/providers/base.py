@@ -22,7 +22,7 @@ def require(module: str, extra: str) -> Any:
     except ImportError as exc:  # pragma: no cover - exercised via factory error path
         raise ProviderError(
             f"Missing dependency '{module}'. Install it with:\n"
-            f"    uv pip install 'agentx[{extra}]'\n"
+            f"    uv pip install 'agentx-kit[{extra}]'\n"
             f"(or: pip install {module})"
         ) from exc
 
@@ -40,7 +40,7 @@ ChatBuilder = Callable[..., Any]
 class ProviderSpec:
     id: str
     label: str
-    extra: str                      # pip extra: agentx[<extra>]
+    extra: str                      # pip extra: agentx-kit[<extra>]
     packages: tuple[str, ...]       # importable module names the extra provides
     default_model: str
     env_vars: tuple[str, ...]       # standard credential env vars (informational)

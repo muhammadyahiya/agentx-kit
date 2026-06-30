@@ -44,7 +44,7 @@ def get_crewai_llm(provider: str | None = None, model: str | None = None, **kwar
 
     CrewAI routes through LiteLLM, so we map the provider to its LiteLLM prefix
     (e.g. ``openrouter/`` , ``bedrock/`` , ``gemini/``) and pass base_url/api_key
-    where relevant. Requires ``agentx[crewai]``.
+    where relevant. Requires ``agentx-kit[crewai]``.
     """
     s = get_settings()
     provider = provider or s.default_provider
@@ -56,7 +56,7 @@ def get_crewai_llm(provider: str | None = None, model: str | None = None, **kwar
     except ImportError as exc:
         raise ProviderError(
             "CrewAI is not installed. Install it with:\n"
-            "    uv pip install 'agentx[crewai]'"
+            "    uv pip install 'agentx-kit[crewai]'"
         ) from exc
 
     # Avoid double-prefixing if the caller already passed e.g. "openrouter/...".

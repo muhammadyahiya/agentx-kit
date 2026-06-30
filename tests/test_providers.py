@@ -46,4 +46,4 @@ def test_missing_package_gives_actionable_error(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(ProviderError) as exc:
         get_chat_model("anthropic", "claude-3-5-sonnet-latest")
-    assert "agentx[anthropic]" in str(exc.value)
+    assert "agentx-kit[anthropic]" in str(exc.value)

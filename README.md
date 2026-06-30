@@ -8,41 +8,34 @@ skills — and AgentX generates a **ready-to-run project in its own `uv`
 virtual environment**.
 
 ```bash
-pip install "agentx[all] @ git+https://github.com/muhammadyahiya/agentx.git"
+pip install "agentx-kit[all]"
 agentx new                 # interactive wizard → scaffolds a uv project
 ```
 
+> The PyPI distribution is **`agentx-kit`**; the import name and CLI are **`agentx`**
+> (`pip install agentx-kit` → `import agentx` / `agentx --help`).
+
 ## 📦 Installation
 
-AgentX is published on GitHub. Install it with **pip** straight from the repo.
-
-### Quick install (everything)
+### From PyPI (recommended)
 ```bash
-pip install "agentx[all] @ git+https://github.com/muhammadyahiya/agentx.git"
+pip install agentx-kit                 # core: CLI + scaffolder + base abstractions
+pip install "agentx-kit[all]"          # everything
+```
+Each LLM provider is an **optional extra** so you only pull the SDKs you use:
+```bash
+pip install "agentx-kit[openai,langgraph]"        # OpenAI + LangGraph
+pip install "agentx-kit[bedrock,crewai,rag,mcp]"  # Bedrock + CrewAI + RAG + MCP
 ```
 
-### Minimal install + only the providers you need
-The core install is light; each LLM provider is an **optional extra** so you only
-pull the SDKs you use:
+### Using `uv`
 ```bash
-# core only (CLI + scaffolder + base abstractions)
-pip install "git+https://github.com/muhammadyahiya/agentx.git"
-
-# core + OpenAI + LangGraph
-pip install "agentx[openai,langgraph] @ git+https://github.com/muhammadyahiya/agentx.git"
-
-# core + Bedrock + CrewAI + RAG + MCP
-pip install "agentx[bedrock,crewai,rag,mcp] @ git+https://github.com/muhammadyahiya/agentx.git"
+uv pip install "agentx-kit[all]"
 ```
 
-### Pin to a release tag (reproducible)
+### From GitHub (latest, unreleased)
 ```bash
-pip install "agentx[all] @ git+https://github.com/muhammadyahiya/agentx.git@v0.1.0"
-```
-
-### Using `uv` instead of pip
-```bash
-uv pip install "agentx[all] @ git+https://github.com/muhammadyahiya/agentx.git"
+pip install "agentx-kit[all] @ git+https://github.com/muhammadyahiya/agentx.git"
 ```
 
 ### From a local clone (development)
@@ -54,8 +47,7 @@ pytest -q
 ```
 
 > Requires **Python 3.10–3.13** and (for the scaffolder's `.venv` creation)
-> [`uv`](https://docs.astral.sh/uv/). Once published to PyPI this becomes simply
-> `pip install "agentx[all]"`.
+> [`uv`](https://docs.astral.sh/uv/).
 
 ### Verify
 ```bash

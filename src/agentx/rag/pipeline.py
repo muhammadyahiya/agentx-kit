@@ -84,7 +84,7 @@ def build_index_from_texts(texts: list[str], persist_dir: str | None = None, emb
         if embeddings is not None:
             store = Chroma.from_texts(chunks, embedding=embeddings, persist_directory=persist_dir)
     except ImportError:
-        logger.info("Chroma not installed; using in-memory keyword retriever. Install 'agentx[rag]' to upgrade.")
+        logger.info("Chroma not installed; using in-memory keyword retriever. Install 'agentx-kit[rag]' to upgrade.")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Vector index build failed (%s); using keyword retriever.", exc)
 

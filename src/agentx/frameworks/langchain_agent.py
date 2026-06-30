@@ -2,7 +2,7 @@
 
 ``build_react_agent`` wires a provider-agnostic chat model (from our factory) +
 tools + an optional system prompt into a LangGraph ReAct agent. Requires
-``agentx[langgraph]`` plus the chosen provider extra.
+``agentx-kit[langgraph]`` plus the chosen provider extra.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def build_react_agent(
         from langgraph.prebuilt import create_react_agent
     except ImportError as exc:
         raise ImportError(
-            "LangGraph is required. Install with: uv pip install 'agentx[langgraph]'"
+            "LangGraph is required. Install with: uv pip install 'agentx-kit[langgraph]'"
         ) from exc
 
     llm = get_chat_model(provider, model, **model_kwargs)

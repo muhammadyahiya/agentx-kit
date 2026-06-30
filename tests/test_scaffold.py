@@ -56,7 +56,7 @@ def test_generate_langgraph_full(tmp_path):
     _compile_tree(root)
     # pyproject wires the right extras + script.
     pyproject = (root / "pyproject.toml").read_text()
-    assert "agentx[" in pyproject and "langgraph" in pyproject and "rag" in pyproject
+    assert "agentx-kit[" in pyproject and "langgraph" in pyproject and "rag" in pyproject
     assert "lg-bot = " in pyproject
     # Prompts are externalised into prompts.json (data-driven, editable post-gen).
     import json
