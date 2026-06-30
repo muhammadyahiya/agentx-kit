@@ -1,0 +1,34 @@
+{
+  "name": "agentx-kit",
+  "displayName": "AgentX-Kit",
+  "description": "Scaffold provider-agnostic LangChain/CrewAI agent projects, open the prompt dashboard, and wire AgentX-Kit into Copilot — from VS Code.",
+  "version": "0.1.0",
+  "publisher": "agentx",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Machine Learning", "Snippets", "Other"],
+  "keywords": ["ai", "agents", "llm", "langchain", "crewai", "mcp", "scaffold", "copilot"],
+  "icon": "icon.png",
+  "repository": { "type": "git", "url": "https://github.com/muhammadyahiya/agentx-kit" },
+  "license": "MIT",
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "agentx.newProject", "title": "AgentX: New Agent Project" },
+      { "command": "agentx.dashboard", "title": "AgentX: Open Prompt Dashboard" },
+      { "command": "agentx.addPrompt", "title": "AgentX: Add Agent Prompt" },
+      { "command": "agentx.cacheStats", "title": "AgentX: Show Response-Cache Stats" },
+      { "command": "agentx.registerMcp", "title": "AgentX: Register MCP Server for Copilot" }
+    ],
+    "configuration": {
+      "title": "AgentX-Kit",
+      "properties": {
+        "agentx.command": {
+          "type": "string",
+          "default": "agentx",
+          "description": "Path to the agentx CLI (from `pip install agentx-kit`)."
+        }
+      }
+    }
+  }
+}

@@ -16,7 +16,7 @@ is enough to get started.
 """
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from .providers import (  # noqa: E402
     ProviderSpec,
@@ -39,6 +39,7 @@ from .insights import (  # noqa: E402
     estimate_cost,
     optimize_prompt,
 )
+from .cache import cache_stats, clear_cache, disable_caching, enable_caching  # noqa: E402
 
 __all__ = [
     "__version__",
@@ -63,4 +64,9 @@ __all__ = [
     "optimize_prompt",
     "count_tokens",
     "estimate_cost",
+    # response caching
+    "enable_caching",
+    "disable_caching",
+    "cache_stats",
+    "clear_cache",
 ]

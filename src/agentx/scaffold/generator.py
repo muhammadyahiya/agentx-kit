@@ -134,6 +134,7 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
             "docker": spec.docker,
             "ci": spec.ci,
             "evals": spec.evals,
+            "cache": spec.use_cache,
         },
         "extras": _extras(spec),
         "telemetry_opt_out": False,

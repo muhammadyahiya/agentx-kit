@@ -10,7 +10,7 @@ from pathlib import Path
 from ..scaffold import AgentSpec, ProjectSpec, generate_project
 from .recommend import recommend_spec
 
-_ALL_FEATURES = ["rag", "memory", "mcp", "skills", "observability", "guardrails", "serve", "docker", "ci", "evals"]
+_ALL_FEATURES = ["rag", "memory", "mcp", "skills", "observability", "guardrails", "serve", "docker", "ci", "evals", "cache"]
 _KEY_FILES_MAX = 6000
 
 
@@ -26,6 +26,7 @@ def _apply_features(spec: ProjectSpec, features: list[str]) -> None:
     spec.docker = "docker" in fl
     spec.ci = "ci" in fl
     spec.evals = "evals" in fl
+    spec.use_cache = "cache" in fl
 
 
 def build_project_from_statement(

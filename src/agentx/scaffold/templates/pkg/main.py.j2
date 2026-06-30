@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 {% endif %}
 {% if spec.guardrails %}from .guardrails import guard_input, guard_output
 {% endif %}
+{% if spec.use_cache %}from agentx.cache import enable_caching
+{% endif %}
 {% if spec.framework == 'langgraph' %}
 from agentx.frameworks import run_agent
 from .agents import build_agents
@@ -17,6 +19,9 @@ def main() -> None:
     load_dotenv()
 {% if spec.observability %}
     init_observability()
+{% endif %}
+{% if spec.use_cache %}
+    enable_caching()   # cache LLM responses → lower cost & latency
 {% endif %}
     agents = build_agents()
     agent_name, agent = next(iter(agents.items()))
@@ -52,6 +57,9 @@ def main() -> None:
     load_dotenv()
 {% if spec.observability %}
     init_observability()
+{% endif %}
+{% if spec.use_cache %}
+    enable_caching()   # cache LLM responses → lower cost & latency
 {% endif %}
     print("🧬 {{ spec.slug }} (CrewAI). Type 'quit' to exit.\n")
     while True:

@@ -68,6 +68,38 @@ def dashboard(
         raise typer.Exit(1) from exc
 
 
+cache_app = typer.Typer(help="Inspect/clear the local LLM response cache.", no_args_is_help=True)
+app.add_typer(cache_app, name="cache")
+
+
+@cache_app.command("stats")
+def cache_stats_cmd(
+    path: Path = typer.Option(".agentx/llm_cache.sqlite", "--path", help="Cache DB path."),
+) -> None:
+    """Show cache hit rate and estimated tokens/$ saved."""
+    from .cache import cache_stats
+
+    s = cache_stats(path)
+    table = Table(title="LLM response cache")
+    table.add_column("metric", style="cyan")
+    table.add_column("value")
+    for k in ("entries", "hits", "misses", "hit_rate", "tokens_saved", "est_usd_saved"):
+        table.add_row(k, str(s[k]))
+    console.print(table)
+    console.print(f"[dim]{s['path']}[/]")
+
+
+@cache_app.command("clear")
+def cache_clear_cmd(
+    path: Path = typer.Option(".agentx/llm_cache.sqlite", "--path", help="Cache DB path."),
+) -> None:
+    """Clear all cached responses and reset stats."""
+    from .cache import clear_cache
+
+    clear_cache(path)
+    console.print("[green]✓[/] Cache cleared.")
+
+
 @app.command()
 def mcp(
     print_config: bool = typer.Option(False, "--print-config", help="Print MCP client config for Claude/Codex/Copilot and exit."),

@@ -218,6 +218,21 @@ def _trends_panel():
     c2.metric("Total tokens", f"{agg['total_tokens']:,}")
     c3.metric("Total cost", f"${agg['total_cost_usd']:.4f}")
     c4.metric("Avg latency", f"{agg['avg_latency_ms']} ms")
+
+    # Response-cache savings (if caching has been used in this project).
+    cache_path = _PROJECT / ".agentx" / "llm_cache.sqlite"
+    if cache_path.exists():
+        try:
+            from agentx.cache import cache_stats
+
+            cs = cache_stats(cache_path)
+            st.markdown("###### 💾 Response cache")
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Hit rate", f"{cs['hit_rate']:.0%}", help=f"{cs['hits']} hits / {cs['misses']} misses")
+            d2.metric("Tokens saved", f"{cs['tokens_saved']:,}")
+            d3.metric("Est. $ saved", f"${cs['est_usd_saved']:.4f}")
+        except Exception:  # noqa: BLE001
+            pass
     rows = [r for r in log.events() if r.get("kind") == "run"]
     if not rows:
         st.info("No runs logged yet — use **Test run** to populate trends.")

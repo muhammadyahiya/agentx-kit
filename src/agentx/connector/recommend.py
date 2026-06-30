@@ -65,6 +65,8 @@ def recommend_spec(problem_statement: str) -> dict:
     production = _has(text, "production", "enterprise", "scalable", "observability",
                       "monitor", "trace", "secure", "reliable", "deploy", "high traffic")
     coding = _has(text, "coding", "write code", "code generation", "programming task")
+    cache = _has(text, "cache", "cost", "cheap", "latency", "high traffic", "high-traffic",
+                 "fast response", "reduce cost", "save money", "repeated")
 
     features: list[str] = []
     if rag:
@@ -77,6 +79,8 @@ def recommend_spec(problem_statement: str) -> dict:
         features.append("skills")
     if serve or production:
         features.append("serve")
+    if cache or production:
+        features.append("cache")
     if production:
         features += ["observability", "guardrails", "docker", "ci", "evals"]
     # de-dupe, stable order

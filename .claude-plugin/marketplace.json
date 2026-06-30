@@ -1,0 +1,15 @@
+{
+  "name": "agentx-kit",
+  "owner": { "name": "AgentX", "url": "https://github.com/muhammadyahiya/agentx-kit" },
+  "metadata": {
+    "description": "AgentX-Kit — scaffold agent projects from a prompt, in Claude Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "agentx-kit",
+      "source": "./integrations/claude-plugin",
+      "description": "Scaffold complete LangChain/CrewAI agent projects from a single problem statement via AgentX-Kit's MCP tools."
+    }
+  ]
+}

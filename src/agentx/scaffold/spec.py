@@ -52,6 +52,7 @@ class ProjectSpec(BaseModel):
     docker: bool = False          # Dockerfile + docker-compose.yml
     ci: bool = False              # GitHub Actions (lint + test [+ eval])
     evals: bool = False           # LLM-as-judge eval harness (+ CI gate)
+    use_cache: bool = False       # global LLM response cache (cost/latency saver)
     create_venv: bool = True
     run_sync: bool = False
     # When set, generated pyproject depends on agentx from this local path
@@ -61,7 +62,7 @@ class ProjectSpec(BaseModel):
     def enable_enterprise(self) -> "ProjectSpec":
         """Turn on the full enterprise feature set in one call."""
         self.observability = self.guardrails = self.serve = True
-        self.docker = self.ci = self.evals = True
+        self.docker = self.ci = self.evals = self.use_cache = True
         return self
 
     @property

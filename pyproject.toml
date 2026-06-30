@@ -1,7 +1,7 @@
 [project]
 # PyPI distribution name (import name + CLI stay `agentx`; `agentx` was taken).
 name = "agentx-kit"
-version = "0.4.0"
+version = "0.5.0"
 description = "An open-source, provider-agnostic agentic framework + interactive project scaffolder for LangChain and CrewAI. Pick your LLM provider, agents, RAG, memory, MCP tools and skills — generate a ready-to-run uv project."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"

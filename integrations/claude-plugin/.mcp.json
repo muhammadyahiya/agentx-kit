@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agentx-kit": {
+      "command": "agentx",
+      "args": ["mcp"]
+    }
+  }
+}

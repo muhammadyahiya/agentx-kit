@@ -187,6 +187,43 @@ The assistant calls AgentX-Kit's tools and you get a complete, runnable project:
 
 So from one sentence the assistant produces a pre-wired project (prompts already seeded from your use case), ready to `uv sync && uv run`.
 
+## 🧩 Editor & assistant integrations
+The same connector powers ready-made integrations (see [`integrations/`](integrations/)):
+
+- **VS Code extension** ([`integrations/vscode`](integrations/vscode)) — commands for
+  *New Agent Project*, *Open Prompt Dashboard*, *Add Prompt*, *Cache Stats*, and
+  *Register MCP Server for Copilot* (writes `.vscode/mcp.json`). Build with `vsce package`.
+- **GitHub Copilot** (agent mode) — add the MCP server via `.vscode/mcp.json`:
+  ```jsonc
+  { "servers": { "agentx-kit": { "command": "agentx", "args": ["mcp"] } } }
+  ```
+  (the VS Code command above writes this for you), then ask Copilot to build an agent.
+- **Claude Code plugin** ([`integrations/claude-plugin`](integrations/claude-plugin)):
+  ```text
+  /plugin marketplace add muhammadyahiya/agentx-kit
+  /plugin install agentx-kit@agentx-kit
+  /agentx-kit:new-agent a support agent that answers from our docs and serves an API
+  ```
+- **Claude Desktop / Codex** — add the connector config from `agentx mcp --print-config`.
+
+## 💾 Response caching (cost & latency saver)
+Caching is the top 2026 token-optimization lever. Turn on a **global LLM response
+cache** and every provider call is served from a local store on repeat — no code changes:
+
+```python
+from agentx import enable_caching, cache_stats
+enable_caching()                 # all get_chat_model(...) calls are cached
+...
+print(cache_stats())             # {'hit_rate': 0.6, 'tokens_saved': 12000, 'est_usd_saved': 0.024, ...}
+```
+```bash
+agentx cache stats               # hit rate + estimated tokens/$ saved
+agentx cache clear
+```
+Generated projects can enable it automatically (it's part of `--enterprise`), and the
+**dashboard's Trends tab shows live hit-rate and $ saved**. TTL-capable, SQLite-backed
+at `.agentx/llm_cache.sqlite`.
+
 ## 🏢 Enterprise pack
 Generate a production-shaped project with one flag — informed by a survey of
 CrewAI/LangGraph/create-llama/AgentStack/agno/pydantic-ai (see [RESEARCH.md](RESEARCH.md)):

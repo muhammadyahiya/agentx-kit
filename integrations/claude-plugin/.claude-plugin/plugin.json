@@ -1,0 +1,9 @@
+{
+  "name": "agentx-kit",
+  "version": "0.1.0",
+  "description": "Scaffold complete provider-agnostic LangChain/CrewAI agent projects from a single problem statement, via AgentX-Kit's MCP tools.",
+  "author": { "name": "AgentX" },
+  "homepage": "https://github.com/muhammadyahiya/agentx-kit",
+  "license": "MIT",
+  "keywords": ["agents", "scaffold", "langchain", "crewai", "mcp"]
+}
