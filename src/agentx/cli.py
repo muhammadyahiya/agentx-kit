@@ -46,6 +46,28 @@ def providers() -> None:
     console.print(table)
 
 
+@app.command()
+def dashboard(
+    port: int = typer.Option(8501, "--port", help="Port for the dashboard server."),
+    provider: str = typer.Option(None, "--provider", help="Default provider to preselect."),
+    model: str = typer.Option(None, "--model", help="Default model to preselect."),
+    project: Path = typer.Option(None, "--project", help="Project dir (default: cwd; auto-detects prompts.json)."),
+) -> None:
+    """Launch the prompt observability & optimization dashboard (Streamlit).
+
+    A workbench to edit a prompt and see token usage, context-window utilization,
+    cost, quality suggestions, one-click LLM optimization, and test runs — live.
+    """
+    from .dashboard import launch
+
+    console.print(f"[cyan]Launching AgentX dashboard on http://localhost:{port} …[/] (Ctrl+C to stop)")
+    try:
+        launch(port=port, provider=provider, model=model, project=str(project) if project else None)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+
 def _result_panel(result, spec: ProjectSpec) -> None:
     lines = [f"[bold green]✓[/] Project '{spec.slug}' created at:", f"  {result.target_dir}", ""]
     lines += [f"  • {m}" for m in result.messages]
@@ -156,6 +178,20 @@ def _read_text_arg(text: str | None, from_file: Path | None) -> str:
     return (text or "").strip()
 
 
+def _maybe_launch_dashboard(launch_flag: bool, project_dir: Path) -> None:
+    """Open the prompt dashboard after an edit if requested."""
+    if not launch_flag:
+        console.print("  [dim]Tip: run `agentx dashboard` to tune this prompt live.[/]")
+        return
+    from .dashboard import launch
+
+    console.print("[cyan]Opening dashboard…[/]")
+    try:
+        launch(project=str(project_dir))
+    except RuntimeError as exc:
+        console.print(f"[yellow]{exc}[/]")
+
+
 @prompt_app.command("list")
 def prompt_list(project: Path = typer.Option(None, "--project", help="Project dir (default: search from cwd).")) -> None:
     """List agents and their (resolved) prompts."""
@@ -177,6 +213,7 @@ def prompt_set(
     text: str = typer.Option("", "--text", "-t", help="New system prompt text."),
     from_file: Path = typer.Option(None, "--file", "-f", help="Read prompt text from a file."),
     project: Path = typer.Option(None, "--project"),
+    dash: bool = typer.Option(False, "--dashboard", "-d", help="Open the dashboard after saving."),
 ) -> None:
     """Set/replace an existing agent's system prompt."""
     path = _resolve_prompts_file(project)
@@ -190,6 +227,7 @@ def prompt_set(
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
     console.print(f"[green]✓[/] Updated prompt for '{agent}'.")
+    _maybe_launch_dashboard(dash, path.parent)
 
 
 @prompt_app.command("add")
@@ -200,6 +238,7 @@ def prompt_add(
     text: str = typer.Option("", "--text", "-t", help="System prompt (blank = auto from role/goal)."),
     from_file: Path = typer.Option(None, "--file", "-f"),
     project: Path = typer.Option(None, "--project"),
+    dash: bool = typer.Option(False, "--dashboard", "-d", help="Open the dashboard after saving."),
 ) -> None:
     """Add a new agent; the project picks it up automatically on next run."""
     path = _resolve_prompts_file(project)
@@ -209,6 +248,7 @@ def prompt_add(
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
     console.print(f"[green]✓[/] Added agent '{agent}'. It will run on next start — no code changes needed.")
+    _maybe_launch_dashboard(dash, path.parent)
 
 
 @prompt_app.command("remove")

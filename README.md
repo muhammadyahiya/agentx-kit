@@ -138,6 +138,26 @@ agentx prompt remove reviewer
 A blank `system_prompt` is auto-derived from the agent's role + goal. You can also
 just open `prompts.json` in an editor — the CLI is a convenience, not a gate.
 
+## 📊 Prompt dashboard (observability + optimization)
+A Streamlit workbench to **understand and refine how your prompts talk to the LLM** —
+launch it any time:
+
+```bash
+pip install "agentx-kit[dashboard]"
+agentx dashboard                 # opens http://localhost:8501
+agentx prompt set assistant -d   # edit a prompt AND open the dashboard
+```
+
+It gives you, live as you edit:
+- **Token count, context-window utilization gauge, and cost estimate** (tiktoken-accurate).
+- **Quality score (0–100)** with a checklist (role / goal / output-format / examples / constraints / specificity) and **concrete suggestions + limit warnings**.
+- **✨ One-click LLM optimization** — refines the prompt while preserving intent, shows a **diff + rationale + token delta**, and can **apply the result straight back to `prompts.json`**.
+- **▶️ Test run** — send the prompt to the model and see the response with **tokens in/out, latency, and cost**.
+- **📈 Usage trends** — tokens, cost, and latency over time, logged locally to `.agentx/insights.jsonl`.
+
+Run it inside a generated AgentX project and it reads/writes that project's
+`prompts.json`; run it anywhere else for a free-form prompt scratchpad.
+
 ## 🏢 Enterprise pack
 Generate a production-shaped project with one flag — informed by a survey of
 CrewAI/LangGraph/create-llama/AgentStack/agno/pydantic-ai (see [RESEARCH.md](RESEARCH.md)):
@@ -186,6 +206,7 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `mcp` | `langchain-mcp-adapters` | MCP tools |
 | `observability` | `opentelemetry-*`, `openinference-*` | tracing |
 | `server` | `fastapi`, `uvicorn` | serving |
+| `dashboard` | `streamlit`, `tiktoken`, `pandas` | prompt observability dashboard |
 | `all` | everything above | kitchen sink |
 
 See [DESIGN.md](DESIGN.md) for the architecture and [RESEARCH.md](RESEARCH.md) for the competitive analysis behind these features.

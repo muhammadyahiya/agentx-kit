@@ -16,7 +16,7 @@ is enough to get started.
 """
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .providers import (  # noqa: E402
     ProviderSpec,
@@ -33,6 +33,12 @@ from .reliability import (  # noqa: E402
     build_resilient_chat,
 )
 from .structured import structured_model  # noqa: E402
+from .insights import (  # noqa: E402
+    analyze_prompt,
+    count_tokens,
+    estimate_cost,
+    optimize_prompt,
+)
 
 __all__ = [
     "__version__",
@@ -52,4 +58,9 @@ __all__ = [
     "apply_guards",
     "GuardrailError",
     "structured_model",
+    # prompt insights
+    "analyze_prompt",
+    "optimize_prompt",
+    "count_tokens",
+    "estimate_cost",
 ]
