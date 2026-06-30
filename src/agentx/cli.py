@@ -68,6 +68,36 @@ def dashboard(
         raise typer.Exit(1) from exc
 
 
+@app.command()
+def mcp(
+    print_config: bool = typer.Option(False, "--print-config", help="Print MCP client config for Claude/Codex/Copilot and exit."),
+) -> None:
+    """Run AgentX-Kit as an MCP server (connector for Claude / Copilot / Codex).
+
+    Once connected, a single prompt with a problem statement generates a complete
+    project. Add it to a client with the config from `agentx mcp --print-config`.
+    """
+    if print_config:
+        import json
+
+        from .connector import client_config
+
+        cfg = client_config()
+        console.print("[bold]MCP client config[/] (Claude Desktop / Claude Code / Codex / Copilot):\n")
+        console.print(json.dumps(cfg, indent=2))
+        console.print("\n[bold]Claude Code one-liner:[/]")
+        console.print("  claude mcp add agentx-kit -- agentx mcp")
+        console.print("\n[dim]Add the JSON under \"mcpServers\" in your client's MCP config "
+                      "(e.g. claude_desktop_config.json), then restart the client.[/]")
+        return
+    try:
+        from .connector import run
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    run()  # stdio; no console output (the client drives it)
+
+
 def _result_panel(result, spec: ProjectSpec) -> None:
     lines = [f"[bold green]✓[/] Project '{spec.slug}' created at:", f"  {result.target_dir}", ""]
     lines += [f"  • {m}" for m in result.messages]

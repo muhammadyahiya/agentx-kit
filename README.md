@@ -158,6 +158,35 @@ It gives you, live as you edit:
 Run it inside a generated AgentX project and it reads/writes that project's
 `prompts.json`; run it anywhere else for a free-form prompt scratchpad.
 
+## 🔌 Use as a connector (Claude / Copilot / Codex)
+AgentX-Kit ships an **MCP server**, so any MCP-capable assistant can scaffold a
+complete project from **a single prompt with your problem statement**.
+
+```bash
+pip install "agentx-kit[connector]"
+agentx mcp --print-config        # prints the client config below
+```
+
+Add it to your client (then restart it):
+```jsonc
+// Claude Desktop / Codex / Copilot — under "mcpServers"
+{ "mcpServers": { "agentx-kit": { "command": "agentx", "args": ["mcp"] } } }
+```
+```bash
+# Claude Code one-liner
+claude mcp add agentx-kit -- agentx mcp
+```
+
+Now just ask, in plain language:
+> *“Build a customer-support agent that answers from our product docs and serves a REST API.”*
+
+The assistant calls AgentX-Kit's tools and you get a complete, runnable project:
+- **`recommend_project(problem_statement)`** — suggests framework, provider, agent count, and features.
+- **`create_agent_project(problem_statement, …)`** — generates the project (infers RAG/serve/memory/etc. from the statement, or take explicit overrides / `enterprise=true`) and returns the file tree + key file contents + run steps.
+- **`list_providers`**, **`analyze_prompt`**, **`optimize_prompt`** — provider list + prompt insights.
+
+So from one sentence the assistant produces a pre-wired project (prompts already seeded from your use case), ready to `uv sync && uv run`.
+
 ## 🏢 Enterprise pack
 Generate a production-shaped project with one flag — informed by a survey of
 CrewAI/LangGraph/create-llama/AgentStack/agno/pydantic-ai (see [RESEARCH.md](RESEARCH.md)):
@@ -207,6 +236,7 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `observability` | `opentelemetry-*`, `openinference-*` | tracing |
 | `server` | `fastapi`, `uvicorn` | serving |
 | `dashboard` | `streamlit`, `tiktoken`, `pandas` | prompt observability dashboard |
+| `connector` | `mcp` | MCP server for Claude/Copilot/Codex |
 | `all` | everything above | kitchen sink |
 
 See [DESIGN.md](DESIGN.md) for the architecture and [RESEARCH.md](RESEARCH.md) for the competitive analysis behind these features.
