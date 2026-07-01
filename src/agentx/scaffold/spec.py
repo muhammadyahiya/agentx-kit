@@ -15,6 +15,12 @@ Framework = Literal["langgraph", "crewai"]
 MemoryMode = Literal["none", "short", "long", "both"]
 PromptStyle = Literal["default", "custom"]
 
+# How multiple agents are wired together (LangGraph only; CrewAI always uses sequential crew).
+#   supervisor  — an LLM router decides which worker acts next (dynamic, context-aware)
+#   sequential  — agents run in order: agent_1 → agent_2 → … (pipeline / chain-of-thought)
+#   parallel    — all agents handle the same input simultaneously; results are merged
+OrchestrationMode = Literal["supervisor", "sequential", "parallel"]
+
 
 def to_snake(name: str) -> str:
     s = re.sub(r"[^0-9a-zA-Z]+", "_", name.strip().lower()).strip("_")
@@ -40,6 +46,8 @@ class ProjectSpec(BaseModel):
     provider: str = "openai"
     model: str = ""                       # blank → provider default
     agents: list[AgentSpec] = Field(default_factory=lambda: [AgentSpec()])
+    # How agents are connected (only meaningful when len(agents) > 1 and framework == langgraph).
+    orchestration: OrchestrationMode = "supervisor"
     use_rag: bool = False
     memory: MemoryMode = "none"
     use_mcp: bool = False
@@ -84,3 +92,7 @@ class ProjectSpec(BaseModel):
     @property
     def use_long_memory(self) -> bool:
         return self.memory in ("long", "both")
+
+    @property
+    def multi_agent(self) -> bool:
+        return len(self.agents) > 1

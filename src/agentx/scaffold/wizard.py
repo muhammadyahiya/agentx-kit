@@ -20,6 +20,20 @@ _MEMORY = [
     ("Long-term (persistent JSONL)", "long"),
     ("Both", "both"),
 ]
+_ORCHESTRATION = [
+    (
+        "Supervisor  — an LLM router decides which agent acts next (best for open-ended queries)",
+        "supervisor",
+    ),
+    (
+        "Sequential  — agents run in order: agent_1 → agent_2 → … (pipeline / research-then-write)",
+        "sequential",
+    ),
+    (
+        "Parallel    — all agents answer simultaneously; their replies are merged (best for independent sub-tasks)",
+        "parallel",
+    ),
+]
 
 
 def _select(message: str, choices: list[tuple[str, str]], default_value: str) -> str:
@@ -76,6 +90,17 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
             system_prompt=(a_prompt or "").strip(),
         ))
 
+    # Orchestration — only ask when there is more than one agent and framework is LangGraph
+    orchestration = "supervisor"
+    if n_agents > 1 and framework == "langgraph":
+        questionary.print(
+            "\nYou have multiple agents. How should they connect to the orchestrator?",
+            style="bold fg:yellow",
+        )
+        orchestration = _select("Orchestration mode:", _ORCHESTRATION, "supervisor")
+        if orchestration is None:
+            orchestration = "supervisor"
+
     # Capabilities — one by one
     use_rag = questionary.confirm("Add a RAG module (knowledge base)?", default=False).ask()
     memory = _select("Agent memory:", _MEMORY, "none")
@@ -109,6 +134,7 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         provider=provider,
         model=model,
         agents=agents,
+        orchestration=orchestration,
         use_rag=bool(use_rag),
         memory=memory or "none",
         use_mcp=bool(use_mcp),

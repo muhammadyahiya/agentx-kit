@@ -1,7 +1,14 @@
 """LangGraph workflow for {{ spec.slug }}.
 
 Exposes a module-level compiled ``graph`` (the LangGraph convention, also picked
-up by ``langgraph dev``) and a ``run_text`` helper for CLI/server use.
+up by ``langgraph dev``) and ``run_text`` / ``stream_text`` helpers.
+
+{% if multi_agent %}
+Orchestration: {{ orchestration }}
+{% if orchestration == "supervisor" %}  An LLM router decides which specialist to call next.{% endif %}
+{% if orchestration == "sequential" %}  Agents run in order: {% for a in spec.agents %}{{ a.name }}{% if not loop.last %} → {% endif %}{% endfor %}.{% endif %}
+{% if orchestration == "parallel" %}  All agents answer simultaneously; results are merged.{% endif %}
+{% endif %}
 """
 from __future__ import annotations
 
@@ -15,8 +22,6 @@ from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
-# Bound how many node hops one turn may take (guards against supervisor↔worker
-# or agent↔tools loops never terminating).
 RECURSION_LIMIT = 25
 {% if not multi_agent %}
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -26,45 +31,86 @@ from .tools import get_tools
 
 
 def build_graph():
-    """Build the ReAct agent graph: agent ⇄ tools, with checkpointed memory."""
+    """Build a ReAct agent graph: agent ⇄ tools loop, with checkpointed memory."""
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
     builder.add_node("tools", ToolNode(get_tools()))
 
     builder.add_edge(START, "agent")
-    # If the model asked for a tool, go run it; otherwise finish.
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")
 
     return builder.compile(checkpointer=MemorySaver())
-{% else %}
+{% elif orchestration == "supervisor" %}
 from .nodes import WORKERS, make_worker, supervisor
 from .prompts import resolved_system_prompts
 
 
 def build_graph():
-    """Build a supervisor multi-agent graph: supervisor routes to workers."""
+    """Supervisor graph: an LLM router picks the next specialist each turn."""
     builder = StateGraph(AgentState)
     builder.add_node("supervisor", supervisor)
     for name, system_prompt in resolved_system_prompts().items():
         builder.add_node(name, make_worker(name, system_prompt))
 
     builder.add_edge(START, "supervisor")
-    # Supervisor decides the next worker, or ends.
     builder.add_conditional_edges(
         "supervisor",
         lambda state: state.get("next", "FINISH"),
         {**{name: name for name in WORKERS}, "FINISH": END},
     )
-    # Every worker reports back to the supervisor.
     for name in WORKERS:
         builder.add_edge(name, "supervisor")
+
+    return builder.compile(checkpointer=MemorySaver())
+{% elif orchestration == "sequential" %}
+from .nodes import WORKERS, make_worker
+from .prompts import resolved_system_prompts
+
+
+def build_graph():
+    """Sequential pipeline: agents run in order, each seeing the previous output."""
+    builder = StateGraph(AgentState)
+    prompts = resolved_system_prompts()
+    names = list(prompts)
+
+    for name in names:
+        builder.add_node(name, make_worker(name, prompts[name]))
+
+    builder.add_edge(START, names[0])
+    for i in range(len(names) - 1):
+        builder.add_edge(names[i], names[i + 1])
+    builder.add_edge(names[-1], END)
+
+    return builder.compile(checkpointer=MemorySaver())
+{% elif orchestration == "parallel" %}
+from langgraph.types import Send
+
+from .nodes import WORKERS, make_worker, merge_results
+from .prompts import resolved_system_prompts
+
+
+def _fan_out(state: AgentState) -> list[Send]:
+    """Send the same user message to every worker simultaneously."""
+    return [Send(name, state) for name in WORKERS]
+
+
+def build_graph():
+    """Parallel graph: all agents answer simultaneously, then results are merged."""
+    builder = StateGraph(AgentState)
+    for name, system_prompt in resolved_system_prompts().items():
+        builder.add_node(name, make_worker(name, system_prompt))
+    builder.add_node("merge", merge_results)
+
+    builder.add_conditional_edges(START, _fan_out, WORKERS)
+    for name in WORKERS:
+        builder.add_edge(name, "merge")
+    builder.add_edge("merge", END)
 
     return builder.compile(checkpointer=MemorySaver())
 {% endif %}
 
 
-# Module-level compiled graph (import this, or run `langgraph dev`).
 graph = build_graph()
 
 
@@ -73,13 +119,10 @@ def _config(thread_id: str) -> dict:
 
 
 async def arun_text(message: str, thread_id: str = "default") -> str:
-    """Async invoke the graph; return the final text reply.
+    """Async invoke; runs async-only tools (MCP) correctly.
 
-    ``thread_id`` selects the conversation memory partition. Callers serving
-    multiple users MUST pass a distinct id per user/session — otherwise everyone
-    shares one conversation history (see server.py for how it's wired).
-
-    The graph runs async so that async-only tools (e.g. MCP servers) work.
+    Pass a unique ``thread_id`` per user/session — callers that omit it share
+    one conversation history (fine for a single CLI session, wrong for a server).
     """
     try:
         result = await graph.ainvoke(
@@ -96,12 +139,7 @@ _loop: asyncio.AbstractEventLoop | None = None
 
 
 def _sync_loop() -> asyncio.AbstractEventLoop:
-    """A persistent loop for sync callers (CLI/evals).
-
-    Reused across calls so stateful async resources (e.g. MCP stdio sessions)
-    aren't bound to a loop that's already been closed — which is what happens if
-    you ``asyncio.run(...)`` a fresh loop on every turn.
-    """
+    """Reuse one loop across calls so MCP stdio sessions don't break on turn 2."""
     global _loop
     if _loop is None or _loop.is_closed():
         _loop = asyncio.new_event_loop()
@@ -109,27 +147,20 @@ def _sync_loop() -> asyncio.AbstractEventLoop:
 
 
 def run_text(message: str, thread_id: str = "default") -> str:
-    """Sync wrapper over :func:`arun_text` for CLI / sync callers.
-
-    Do NOT call this from inside a running event loop (e.g. an async web
-    handler) — ``await arun_text(...)`` there instead.
-    """
+    """Sync wrapper for CLI / REPL use. Do NOT call from an async context."""
     return _sync_loop().run_until_complete(arun_text(message, thread_id))
 
 
 async def stream_text(message: str, thread_id: str = "default"):
-    """Async-yield the reply token-by-token as the model produces it."""
+    """Yield reply tokens as the model produces them."""
     try:
-        # ``subgraphs=True`` so tokens from worker sub-agents (ReAct subgraphs)
-        # are streamed, not just top-level node output.
         async for _ns, (chunk, meta) in graph.astream(
             {"messages": [{"role": "user", "content": message}]},
             config=_config(thread_id),
             stream_mode="messages",
             subgraphs=True,
         ):
-{% if multi_agent %}
-            # Don't leak the supervisor's internal routing tokens to the user.
+{% if multi_agent and orchestration == "supervisor" %}
             if meta.get("langgraph_node") == "supervisor":
                 continue
 {% endif %}

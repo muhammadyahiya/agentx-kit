@@ -85,6 +85,7 @@ def _context(spec: ProjectSpec) -> dict:
         "extras": _extras(spec),
         "extras_str": ",".join(_extras(spec)),
         "multi_agent": len(spec.agents) > 1,
+        "orchestration": spec.orchestration,
     }
 
 
@@ -139,6 +140,7 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
         "model": spec.model or get_spec(spec.provider).default_model,
         "python_version": ">=3.10,<3.14",
         "agents": [a.name for a in spec.agents],
+        "orchestration": spec.orchestration,
         "features": {
             "rag": spec.use_rag,
             "memory": spec.memory,

@@ -153,6 +153,7 @@ def new(
     provider: str = typer.Option("openai", help="Provider id (with --yes)."),
     model: str = typer.Option("", help="Model id (with --yes; blank = provider default)."),
     agents: int = typer.Option(1, help="Number of agents (with --yes)."),
+    orchestration: str = typer.Option("supervisor", help="supervisor|sequential|parallel — how agents connect (with --yes, only for LangGraph with >1 agents)."),
     prompt: str = typer.Option("", "--prompt", "-p", help="System prompt for the first agent (with --yes)."),
     role: str = typer.Option("Helpful Assistant", help="Role for the first agent (with --yes)."),
     goal: str = typer.Option("Help the user accomplish their task accurately.", help="Goal for the first agent (with --yes)."),
@@ -187,7 +188,8 @@ def new(
                 agent_specs.append(AgentSpec(name=a_name))
         spec = ProjectSpec(
             name=name or "my-agent", framework=framework, provider=provider, model=model,
-            agents=agent_specs, use_rag=rag, memory=memory, use_mcp=mcp, use_skills=skills,
+            agents=agent_specs, orchestration=orchestration,
+            use_rag=rag, memory=memory, use_mcp=mcp, use_skills=skills,
             prompt_style="custom" if prompt else "default",
             observability=observability, guardrails=guardrails, serve=serve,
             docker=docker, ci=ci, evals=evals,

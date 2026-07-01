@@ -6,6 +6,7 @@ LangGraph, so you fully own the graph.
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from langchain_core.messages import AIMessage, SystemMessage
@@ -20,6 +21,7 @@ from .tools import get_tools
 logger = logging.getLogger(__name__)
 
 _TOOLS = get_tools()
+_TOOL_MAP = {t.name: t for t in _TOOLS}
 
 
 def _model(bind_tools: bool = True):
@@ -32,48 +34,140 @@ def _skills_suffix() -> str:
     skills = get_skill_registry("data/skills").combined_instructions()
     return ("\nApply these skills:\n" + skills) if skills else ""
 {% endif %}
+
+async def _exec_json_tool_call(content: str) -> str | None:
+    """Fallback for models (e.g. llama3.2/Ollama) that emit tool calls as JSON
+    text instead of populating the structured ``tool_calls`` field.
+
+    Returns the tool result string, or None if the content isn't a tool call.
+    """
+    try:
+        data = json.loads(content.strip())
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or "name" not in data:
+        return None
+
+    name: str = data["name"]
+    args = data.get("parameters", data.get("args", data.get("arguments", {})))
+    if not isinstance(args, dict):
+        return None
+
+    # Match by exact name, then by description prefix (models sometimes use the
+    # description instead of the function name).
+    tool = _TOOL_MAP.get(name)
+    if tool is None:
+        for t in _TOOLS:
+            if t.description.lower().startswith(name.lower()[:30]):
+                tool = t
+                break
+    if tool is None:
+        logger.debug("json_tool_call: no tool matched name=%r", name)
+        return None
+
+    try:
+        return str(await tool.ainvoke(args))
+    except NotImplementedError:
+        try:
+            return str(tool.invoke(args))
+        except Exception as exc:
+            logger.warning("json_tool_call execution failed: %s", exc)
+            return None
+    except Exception as exc:
+        logger.warning("json_tool_call execution failed: %s", exc)
+        return None
+
+
 {% if not multi_agent %}
+# ---- Single agent ----
 _PROMPTS = resolved_system_prompts()
 _SYSTEM = next(iter(_PROMPTS.values()), "You are a helpful assistant.")
 {% if spec.use_skills %}_SYSTEM = _SYSTEM + _skills_suffix()
 {% endif %}
 
 
-def call_model(state) -> dict:
-    """Agent node: call the LLM with the system prompt + running conversation."""
+async def call_model(state) -> dict:
+    """Agent node: call the LLM, execute tools, and return a final answer.
+
+    Handles two tool-calling patterns:
+    - Structured ``tool_calls`` field (OpenAI, Anthropic, newer Ollama models):
+      the built-in ``ToolNode`` / ``tools_condition`` picks these up normally.
+    - JSON text in ``content`` (llama3.2 and other small Ollama models):
+      detected here, executed directly, and folded back into the final reply.
+    """
     messages = [SystemMessage(_SYSTEM)] + state["messages"]
     try:
-        response = _model().invoke(messages)
-    except Exception as exc:  # noqa: BLE001 — never crash the graph on a model error.
+        response = await _model().ainvoke(messages)
+    except Exception as exc:  # noqa: BLE001
         logger.exception("call_model failed")
-        response = AIMessage(content=f"Sorry, I hit an error contacting the model: {exc}")
+        return {"messages": [AIMessage(content=f"Sorry, I hit an error contacting the model: {exc}")]}
+
+    # If the model supports structured tool calling, return the response as-is
+    # and let the graph's ToolNode / tools_condition handle the rest.
+    if response.tool_calls:
+        return {"messages": [response]}
+
+    # Fallback: detect JSON tool calls emitted as plain text (llama3.2 style).
+    if _TOOLS and response.content:
+        tool_result = await _exec_json_tool_call(str(response.content))
+        if tool_result is not None:
+            logger.debug("json_tool_call executed; re-invoking with result")
+            augmented = messages + [
+                response,
+                {"role": "user", "content": (
+                    f"[Tool result]\n{tool_result}\n\n"
+                    "Use the above result to answer the original question directly and concisely."
+                )},
+            ]
+            try:
+                response = await _model(bind_tools=False).ainvoke(augmented)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("re-invoke after tool result failed: %s", exc)
+
     return {"messages": [response]}
 {% else %}
-# ---- Multi-agent (supervisor + workers) ----
+# ---- Multi-agent ({{ orchestration }}) ----
 from langgraph.prebuilt import create_react_agent
 
 WORKERS = list(resolved_system_prompts().keys())
 
 
 def make_worker(name: str, system_prompt: str):
-    """Build a worker node.
-
-    Each worker is a full ReAct sub-agent, so it can actually *call* the shared
-    tools (web search{% if spec.use_rag %}, knowledge base{% endif %}{% if spec.use_mcp %}, MCP{% endif %}) and fold the results into its
-    answer — not just emit an unexecuted tool call.
-    """
+    """Build a worker as a full ReAct sub-agent (tools actually execute)."""
 {% if spec.use_skills %}    system_prompt = system_prompt + _skills_suffix()
 {% endif %}
     agent = create_react_agent(_model(bind_tools=False), _TOOLS, prompt=system_prompt)
 
-    # Async so async-only tools (e.g. MCP) execute correctly inside the graph.
     async def worker(state) -> dict:
         try:
             result = await agent.ainvoke(
                 {"messages": state["messages"]},
                 config={"recursion_limit": 12},
             )
-            content = result["messages"][-1].content
+            # get last non-empty AIMessage
+            content = ""
+            for m in reversed(result["messages"]):
+                c = getattr(m, "content", "")
+                if c and isinstance(c, str):
+                    content = c
+                    break
+            # Fallback: execute JSON tool call emitted by the sub-agent's model
+            if not content or (content.startswith("{") and '"name"' in content):
+                tool_result = await _exec_json_tool_call(content or "")
+                if tool_result:
+                    try:
+                        follow_up = result["messages"] + [
+                            {"role": "user", "content": (
+                                f"[Tool result]\n{tool_result}\n\n"
+                                "Now answer the user's original question using this result."
+                            )}
+                        ]
+                        fr = await _model(bind_tools=False).ainvoke(
+                            [SystemMessage(system_prompt)] + follow_up
+                        )
+                        content = fr.content or content
+                    except Exception as exc:
+                        logger.warning("worker '%s' follow-up failed: %s", name, exc)
         except Exception as exc:  # noqa: BLE001
             logger.exception("worker '%s' failed", name)
             content = f"Sorry, I ({name}) hit an error: {exc}"
@@ -81,7 +175,7 @@ def make_worker(name: str, system_prompt: str):
 
     return worker
 
-
+{% if orchestration == "supervisor" %}
 _SUPERVISOR_SYSTEM = (
     "You are a supervisor routing work between these specialists: {workers}. "
     "Read the conversation and decide who should act NEXT to make progress.\n"
@@ -105,7 +199,6 @@ def supervisor(state) -> dict:
         logger.exception("supervisor routing failed; finishing")
         return {"next": "FINISH"}
 
-    # Robust match: case-insensitive substring against known worker names.
     lowered = raw.lower()
     choice = "FINISH"
     for name in WORKERS:
@@ -114,4 +207,13 @@ def supervisor(state) -> dict:
             break
     logger.debug("supervisor routed to %s (raw=%r)", choice, raw[:80])
     return {"next": choice}
+{% elif orchestration == "parallel" %}
+def merge_results(state) -> dict:
+    """Collect all worker outputs and present them together."""
+    worker_msgs = [m for m in state["messages"] if getattr(m, "name", None) in set(WORKERS)]
+    if not worker_msgs:
+        return {}
+    combined = "\n\n".join(f"**{m.name}**:\n{m.content}" for m in worker_msgs)
+    return {"messages": [AIMessage(content=combined)]}
+{% endif %}
 {% endif %}

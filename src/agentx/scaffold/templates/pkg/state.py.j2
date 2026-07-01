@@ -1,8 +1,4 @@
-"""Graph state schema for {{ spec.slug }}.
-
-The state is what flows between nodes in the LangGraph workflow. ``messages`` uses
-the ``add_messages`` reducer so each node appends to the running conversation.
-"""
+"""Graph state schema for {{ spec.slug }}."""
 from __future__ import annotations
 
 from typing import Annotated, TypedDict
@@ -15,7 +11,7 @@ class AgentState(TypedDict):
     """Shared state passed through the graph."""
 
     messages: Annotated[list[AnyMessage], add_messages]
-{% if multi_agent %}
+{% if multi_agent and orchestration == "supervisor" %}
     # Supervisor routing: the name of the next worker to run, or "FINISH".
     next: str
 {% endif %}
