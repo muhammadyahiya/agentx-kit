@@ -179,6 +179,21 @@ def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool 
         out_path.write_text(rendered, encoding="utf-8")
         written.append(out_path)
 
+    # Seed a knowledge/ directory when RAG or the MCP filesystem server needs one
+    # (the restricted MCP server points at ./knowledge and RAG indexes it).
+    if spec.use_rag or spec.use_mcp:
+        knowledge_dir = target / "knowledge"
+        knowledge_dir.mkdir(parents=True, exist_ok=True)
+        seed = knowledge_dir / "README.md"
+        if not seed.exists():
+            seed.write_text(
+                f"# {spec.slug} knowledge base\n\n"
+                "Drop `.txt` / `.md` files here. They are indexed for RAG"
+                " and exposed (read-only) to the MCP filesystem tool.\n",
+                encoding="utf-8",
+            )
+        written.append(seed)
+
     # The prompt source of truth — edited by hand or via `agentx prompt`.
     written.append(prompts_store.write_prompts(target, spec))
     # A single declarative manifest of the project (à la langgraph.json).

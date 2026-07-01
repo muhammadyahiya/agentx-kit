@@ -23,6 +23,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from langchain_core.caches import BaseCache
+
 _DEFAULT_PATH = ".agentx/llm_cache.sqlite"
 _lock = threading.Lock()
 
@@ -39,11 +41,12 @@ def _model_from_llm_string(llm_string: str) -> str:
     return "gpt-4o-mini"
 
 
-class AgentXCache:
+class AgentXCache(BaseCache):
     """A LangChain ``BaseCache`` backed by SQLite, with TTL + savings stats.
 
-    Implements ``lookup``/``update`` (and ``aclear``) so it can be passed to
-    ``langchain_core.globals.set_llm_cache``.
+    Implements ``lookup``/``update``/``clear``; the async ``alookup``/``aupdate``
+    paths are inherited from ``BaseCache`` (which runs the sync methods in an
+    executor), so it works under both ``invoke`` and ``ainvoke``.
     """
 
     def __init__(self, path: str | Path = _DEFAULT_PATH, ttl: int | None = None):

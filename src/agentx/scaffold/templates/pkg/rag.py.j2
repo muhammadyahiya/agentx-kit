@@ -6,9 +6,12 @@ keyword retriever.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from agentx.rag import build_index_from_texts, make_retriever_tool
+
+logger = logging.getLogger(__name__)
 
 _KNOWLEDGE_DIR = Path(__file__).resolve().parents[2] / "knowledge"
 _index = None
@@ -18,11 +21,19 @@ def _load_texts() -> list[str]:
     texts: list[str] = []
     if _KNOWLEDGE_DIR.exists():
         for fp in _KNOWLEDGE_DIR.glob("**/*"):
-            if fp.suffix.lower() in {".txt", ".md"}:
+            # Skip the seed README so it doesn't pollute retrieval.
+            if fp.suffix.lower() in {".txt", ".md"} and fp.name != "README.md":
                 texts.append(fp.read_text(encoding="utf-8"))
-    return texts or [
-        "Placeholder knowledge base. Add .txt or .md files under the 'knowledge/' folder."
-    ]
+    if not texts:
+        logger.warning(
+            "Knowledge base at %s is empty — RAG will return a placeholder. "
+            "Add .txt/.md files there to make retrieval useful.",
+            _KNOWLEDGE_DIR,
+        )
+        return [
+            "Placeholder knowledge base. Add .txt or .md files under the 'knowledge/' folder."
+        ]
+    return texts
 
 
 def get_index():

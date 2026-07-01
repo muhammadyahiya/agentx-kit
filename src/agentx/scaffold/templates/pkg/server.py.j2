@@ -2,17 +2,24 @@
 
 Run:  uv run uvicorn {{ pkg }}.server:app --reload --port 8000
 Endpoints: GET /health, POST /chat, GET /chat/stream?message=...
+
+Conversation memory is partitioned by ``session_id``: pass a stable id per user
+to keep context across turns, or omit it to get a fresh, isolated conversation
+every request. Requests without a session_id NEVER share history.
 """
 from __future__ import annotations
 
 import json
+import logging
+import uuid
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 {% if spec.observability %}
 from .observability import init_observability
 
@@ -27,8 +34,10 @@ enable_caching()
 from .guardrails import guard_input, guard_output
 {% endif %}
 {% if spec.framework == 'langgraph' %}
-from .graph import run_text
+from .graph import arun_text, stream_text
 {% else %}
+import asyncio
+
 from .crew import run_text
 {% endif %}
 
@@ -36,7 +45,13 @@ app = FastAPI(title="{{ spec.slug }}", version="0.1.0")
 
 
 class ChatIn(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=8000, description="User message.")
+    # Stable id to keep conversation memory across turns; blank → isolated.
+    session_id: str = Field(default="", max_length=128)
+
+
+def _session(session_id: str) -> str:
+    return session_id or f"anon-{uuid.uuid4().hex}"
 
 
 @app.get("/health")
@@ -45,12 +60,16 @@ def health() -> dict:
 
 
 @app.post("/chat")
-def chat(body: ChatIn) -> dict:
+async def chat(body: ChatIn) -> dict:
     message = body.message
 {% if spec.guardrails %}
     message = guard_input(message).text
 {% endif %}
-    reply = run_text(message)
+{% if spec.framework == 'langgraph' %}
+    reply = await arun_text(message, thread_id=_session(body.session_id))
+{% else %}
+    reply = await asyncio.to_thread(run_text, message, _session(body.session_id))
+{% endif %}
 {% if spec.guardrails %}
     reply = guard_output(reply).text
 {% endif %}
@@ -58,19 +77,25 @@ def chat(body: ChatIn) -> dict:
 
 
 @app.get("/chat/stream")
-def chat_stream(message: str) -> StreamingResponse:
-    """Server-Sent Events stream of the reply (token-chunked)."""
+def chat_stream(message: str, session_id: str = "") -> StreamingResponse:
+    """Server-Sent Events stream of the reply, token-by-token."""
 {% if spec.guardrails %}
     message = guard_input(message).text
 {% endif %}
+    thread_id = _session(session_id)
 
-    def _events():
-        reply = run_text(message)
+    async def _events():
+{% if spec.framework == 'langgraph' %}
+        async for token in stream_text(message, thread_id=thread_id):
+            yield f"data: {json.dumps({'token': token})}\n\n"
+{% else %}
+        reply = await asyncio.to_thread(run_text, message, thread_id)
 {% if spec.guardrails %}
         reply = guard_output(reply).text
 {% endif %}
         for chunk in reply.split(" "):
             yield f"data: {json.dumps({'token': chunk + ' '})}\n\n"
+{% endif %}
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(_events(), media_type="text/event-stream")

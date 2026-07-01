@@ -1,11 +1,19 @@
-"""Memory for {{ spec.slug }} (mode: {{ spec.memory }})."""
+"""Memory helpers for {{ spec.slug }} (mode: {{ spec.memory }}).
+
+NOTE: the LangGraph graph already keeps short-term conversation memory per
+``thread_id`` via its checkpointer (see graph.py). These helpers are optional
+extras for when you want an explicit rolling window or durable cross-session
+storage outside the graph — import them where you need them.
+"""
 from __future__ import annotations
 
 {% if spec.use_short_memory %}
 from agentx.memory import ConversationMemory
 
-# Short-term, in-process rolling window of recent turns.
-session_memory = ConversationMemory(max_turns=12)
+
+def new_session_memory(max_turns: int = 12) -> ConversationMemory:
+    """A short-term, in-process rolling window of recent turns."""
+    return ConversationMemory(max_turns=max_turns)
 {% endif %}
 {% if spec.use_long_memory %}
 from agentx.memory import LongTermMemory

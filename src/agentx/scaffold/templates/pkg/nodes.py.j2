@@ -6,6 +6,8 @@ LangGraph, so you fully own the graph.
 """
 from __future__ import annotations
 
+import logging
+
 from langchain_core.messages import AIMessage, SystemMessage
 
 from agentx import get_chat_model
@@ -14,6 +16,8 @@ from .prompts import resolved_system_prompts
 from .tools import get_tools
 {% if spec.use_skills %}from agentx.skills import get_skill_registry
 {% endif %}
+
+logger = logging.getLogger(__name__)
 
 _TOOLS = get_tools()
 
@@ -38,39 +42,76 @@ _SYSTEM = next(iter(_PROMPTS.values()), "You are a helpful assistant.")
 def call_model(state) -> dict:
     """Agent node: call the LLM with the system prompt + running conversation."""
     messages = [SystemMessage(_SYSTEM)] + state["messages"]
-    response = _model().invoke(messages)
+    try:
+        response = _model().invoke(messages)
+    except Exception as exc:  # noqa: BLE001 — never crash the graph on a model error.
+        logger.exception("call_model failed")
+        response = AIMessage(content=f"Sorry, I hit an error contacting the model: {exc}")
     return {"messages": [response]}
 {% else %}
 # ---- Multi-agent (supervisor + workers) ----
+from langgraph.prebuilt import create_react_agent
+
 WORKERS = list(resolved_system_prompts().keys())
 
 
 def make_worker(name: str, system_prompt: str):
-    """Build a worker node that answers with its own persona."""
+    """Build a worker node.
+
+    Each worker is a full ReAct sub-agent, so it can actually *call* the shared
+    tools (web search{% if spec.use_rag %}, knowledge base{% endif %}{% if spec.use_mcp %}, MCP{% endif %}) and fold the results into its
+    answer — not just emit an unexecuted tool call.
+    """
 {% if spec.use_skills %}    system_prompt = system_prompt + _skills_suffix()
 {% endif %}
+    agent = create_react_agent(_model(bind_tools=False), _TOOLS, prompt=system_prompt)
 
-    def worker(state) -> dict:
-        messages = [SystemMessage(system_prompt)] + state["messages"]
-        response = _model().invoke(messages)
-        return {"messages": [AIMessage(content=response.content, name=name)]}
+    # Async so async-only tools (e.g. MCP) execute correctly inside the graph.
+    async def worker(state) -> dict:
+        try:
+            result = await agent.ainvoke(
+                {"messages": state["messages"]},
+                config={"recursion_limit": 12},
+            )
+            content = result["messages"][-1].content
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("worker '%s' failed", name)
+            content = f"Sorry, I ({name}) hit an error: {exc}"
+        return {"messages": [AIMessage(content=content, name=name)]}
 
     return worker
 
 
 _SUPERVISOR_SYSTEM = (
-    "You are a supervisor coordinating these workers: {workers}. "
-    "Given the conversation so far, decide who should act next to make progress. "
-    "Reply with ONLY one token: a worker name, or FINISH if the task is complete."
+    "You are a supervisor routing work between these specialists: {workers}. "
+    "Read the conversation and decide who should act NEXT to make progress.\n"
+    "Rules:\n"
+    "- Reply with ONLY one token and nothing else.\n"
+    "- The token must be exactly one of: {choices}.\n"
+    "- Pick the single most relevant specialist for an unanswered request.\n"
+    "- Reply FINISH if the latest assistant message already answers the user, "
+    "or if no specialist can help further."
 )
 
 
 def supervisor(state) -> dict:
     """Router node: pick the next worker (or FINISH)."""
-    sys = _SUPERVISOR_SYSTEM.format(workers=", ".join(WORKERS))
-    response = _model(bind_tools=False).invoke([SystemMessage(sys)] + state["messages"])
-    choice = (response.content or "FINISH").strip().split()[0].strip(".,:")
-    if choice not in WORKERS:
-        choice = "FINISH"
+    choices = WORKERS + ["FINISH"]
+    sys = _SUPERVISOR_SYSTEM.format(workers=", ".join(WORKERS), choices=", ".join(choices))
+    try:
+        response = _model(bind_tools=False).invoke([SystemMessage(sys)] + state["messages"])
+        raw = (response.content or "").strip()
+    except Exception:  # noqa: BLE001
+        logger.exception("supervisor routing failed; finishing")
+        return {"next": "FINISH"}
+
+    # Robust match: case-insensitive substring against known worker names.
+    lowered = raw.lower()
+    choice = "FINISH"
+    for name in WORKERS:
+        if name.lower() in lowered:
+            choice = name
+            break
+    logger.debug("supervisor routed to %s (raw=%r)", choice, raw[:80])
     return {"next": choice}
 {% endif %}

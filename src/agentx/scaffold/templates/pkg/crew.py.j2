@@ -13,6 +13,11 @@ def build_project_crew(user_input: str):
     return build_crew(list(agents.values()), tasks)
 
 
-def run_text(message: str) -> str:
-    """Run the crew on a message and return the final text (used by main/server)."""
+def run_text(message: str, thread_id: str = "default") -> str:
+    """Run the crew on a message and return the final text (used by main/server).
+
+    ``thread_id`` is accepted for API-compatibility with the server; a CrewAI
+    kickoff is stateless per call, so it is not used to partition memory here.
+    """
+    del thread_id
     return str(build_project_crew(message).kickoff())

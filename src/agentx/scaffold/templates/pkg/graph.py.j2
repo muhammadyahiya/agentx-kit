@@ -5,10 +5,19 @@ up by ``langgraph dev``) and a ``run_text`` helper for CLI/server use.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from .state import AgentState
+
+logger = logging.getLogger(__name__)
+
+# Bound how many node hops one turn may take (guards against supervisor↔worker
+# or agent↔tools loops never terminating).
+RECURSION_LIMIT = 25
 {% if not multi_agent %}
 from langgraph.prebuilt import ToolNode, tools_condition
 
@@ -59,11 +68,74 @@ def build_graph():
 graph = build_graph()
 
 
-def run_text(message: str, thread_id: str = "default") -> str:
-    """Invoke the graph with one user message; return the final text reply."""
-    result = graph.invoke(
-        {"messages": [{"role": "user", "content": message}]},
-        config={"configurable": {"thread_id": thread_id}},
-    )
+def _config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
+
+
+async def arun_text(message: str, thread_id: str = "default") -> str:
+    """Async invoke the graph; return the final text reply.
+
+    ``thread_id`` selects the conversation memory partition. Callers serving
+    multiple users MUST pass a distinct id per user/session — otherwise everyone
+    shares one conversation history (see server.py for how it's wired).
+
+    The graph runs async so that async-only tools (e.g. MCP servers) work.
+    """
+    try:
+        result = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": message}]}, config=_config(thread_id)
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("graph invocation failed")
+        return f"Sorry, something went wrong: {exc}"
     messages = result.get("messages", [])
     return getattr(messages[-1], "content", "") if messages else ""
+
+
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _sync_loop() -> asyncio.AbstractEventLoop:
+    """A persistent loop for sync callers (CLI/evals).
+
+    Reused across calls so stateful async resources (e.g. MCP stdio sessions)
+    aren't bound to a loop that's already been closed — which is what happens if
+    you ``asyncio.run(...)`` a fresh loop on every turn.
+    """
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+    return _loop
+
+
+def run_text(message: str, thread_id: str = "default") -> str:
+    """Sync wrapper over :func:`arun_text` for CLI / sync callers.
+
+    Do NOT call this from inside a running event loop (e.g. an async web
+    handler) — ``await arun_text(...)`` there instead.
+    """
+    return _sync_loop().run_until_complete(arun_text(message, thread_id))
+
+
+async def stream_text(message: str, thread_id: str = "default"):
+    """Async-yield the reply token-by-token as the model produces it."""
+    try:
+        # ``subgraphs=True`` so tokens from worker sub-agents (ReAct subgraphs)
+        # are streamed, not just top-level node output.
+        async for _ns, (chunk, meta) in graph.astream(
+            {"messages": [{"role": "user", "content": message}]},
+            config=_config(thread_id),
+            stream_mode="messages",
+            subgraphs=True,
+        ):
+{% if multi_agent %}
+            # Don't leak the supervisor's internal routing tokens to the user.
+            if meta.get("langgraph_node") == "supervisor":
+                continue
+{% endif %}
+            text = getattr(chunk, "content", "")
+            if text:
+                yield text
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("graph streaming failed")
+        yield f"Sorry, something went wrong: {exc}"

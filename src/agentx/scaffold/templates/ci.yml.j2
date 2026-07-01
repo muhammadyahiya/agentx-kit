@@ -33,9 +33,15 @@ jobs:
       - name: Install
         run: uv pip install --system -e .
       - name: Run eval gate
+        # Non-blocking: the eval harness needs a reachable model (an API key or a
+        # local model server). Add your provider secret(s) below and drop
+        # `continue-on-error` to make this a hard CI gate.
+        continue-on-error: true
         env:
-          # Add your provider key as a repo secret to enable the gate.
-          OPENAI_API_KEY: {% raw %}${{ secrets.OPENAI_API_KEY }}{% endraw %}
-
+          AGENTX_PROVIDER: {{ spec.provider }}
+          AGENTX_MODEL: {{ model }}
+{% for v in provider_env %}
+          {{ v }}: {% raw %}${{ secrets.{% endraw %}{{ v }}{% raw %} }}{% endraw %}
+{% endfor %}
         run: python evals/run_evals.py
 {% endif %}
