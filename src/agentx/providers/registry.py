@@ -13,9 +13,23 @@ from ..config import get_settings
 from .base import ProviderSpec, require
 
 
-def _common(kwargs: dict) -> dict:
+def _common(kwargs: dict, *, timeout_kw: str | None = "timeout") -> dict:
+    """Merge settings-based defaults into caller-provided kwargs.
+
+    Applies:
+        temperature      — from AGENTX_TEMPERATURE
+        <timeout_kw>     — from AGENTX_REQUEST_TIMEOUT (keyword name varies by
+                           provider; pass ``timeout_kw=None`` to skip)
+        max_tokens       — from AGENTX_MAX_TOKENS if set
+
+    Caller-provided kwargs win (``setdefault``).
+    """
     s = get_settings()
     kwargs.setdefault("temperature", s.temperature)
+    if timeout_kw:
+        kwargs.setdefault(timeout_kw, s.request_timeout)
+    if s.max_tokens is not None:
+        kwargs.setdefault("max_tokens", s.max_tokens)
     return kwargs
 
 
@@ -45,25 +59,41 @@ def _build_openrouter(model: str | None = None, **kwargs: Any):
 
 def _build_anthropic(model: str | None = None, **kwargs: Any):
     mod = require("langchain_anthropic", "anthropic")
-    return mod.ChatAnthropic(model=model or "claude-3-5-sonnet-latest", **_common(kwargs))
+    # ChatAnthropic uses ``default_request_timeout`` (not ``timeout``).
+    return mod.ChatAnthropic(
+        model=model or "claude-3-5-sonnet-latest",
+        **_common(kwargs, timeout_kw="default_request_timeout"),
+    )
 
 
 def _build_gemini(model: str | None = None, **kwargs: Any):
     mod = require("langchain_google_genai", "google")
-    return mod.ChatGoogleGenerativeAI(model=model or "gemini-1.5-flash", **_common(kwargs))
+    # ChatGoogleGenerativeAI does not expose a top-level timeout kwarg.
+    return mod.ChatGoogleGenerativeAI(
+        model=model or "gemini-1.5-flash",
+        **_common(kwargs, timeout_kw=None),
+    )
 
 
 def _build_vertex(model: str | None = None, **kwargs: Any):
     mod = require("langchain_google_vertexai", "vertex")
     kwargs.setdefault("project", os.getenv("GOOGLE_CLOUD_PROJECT"))
     kwargs.setdefault("location", os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
-    return mod.ChatVertexAI(model=model or "gemini-1.5-flash", **_common(kwargs))
+    # ChatVertexAI uses request_parallelism, not a request timeout kwarg.
+    return mod.ChatVertexAI(
+        model=model or "gemini-1.5-flash",
+        **_common(kwargs, timeout_kw=None),
+    )
 
 
 def _build_bedrock(model: str | None = None, **kwargs: Any):
     mod = require("langchain_aws", "bedrock")
     kwargs.setdefault("region_name", os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")))
-    return mod.ChatBedrockConverse(model=model or "anthropic.claude-3-5-sonnet-20240620-v1:0", **_common(kwargs))
+    # Bedrock uses botocore config for timeouts, not a top-level kwarg.
+    return mod.ChatBedrockConverse(
+        model=model or "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        **_common(kwargs, timeout_kw=None),
+    )
 
 
 def _build_groq(model: str | None = None, **kwargs: Any):

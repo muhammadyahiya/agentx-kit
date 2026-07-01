@@ -13,14 +13,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        # Allow both Python field names AND env-var aliases as constructor kwargs.
+        populate_by_name=True,
+    )
 
     # Default provider/model used when none is passed explicitly.
     default_provider: str = Field(default="openai", alias="AGENTX_PROVIDER")
     default_model: str = Field(default="", alias="AGENTX_MODEL")
-    temperature: float = Field(default=0.3, alias="AGENTX_TEMPERATURE")
-    max_tokens: int | None = Field(default=None, alias="AGENTX_MAX_TOKENS")
-    request_timeout: int = Field(default=120, alias="AGENTX_REQUEST_TIMEOUT")
+    temperature: float = Field(default=0.3, alias="AGENTX_TEMPERATURE", ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, alias="AGENTX_MAX_TOKENS", ge=1)
+    request_timeout: int = Field(default=120, alias="AGENTX_REQUEST_TIMEOUT", ge=1)
 
     # Local backends.
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
@@ -57,7 +63,22 @@ class Settings(BaseSettings):
         description="Default embedding model ID for the selected provider.",
     )
 
+    # Security: opt-out of FAISS pickle-based deserialization when loading indexes.
+    faiss_allow_dangerous_load: bool = Field(
+        default=False,
+        alias="AGENTX_FAISS_ALLOW_DANGEROUS_LOAD",
+        description="Allow loading FAISS indexes (uses pickle — trust source only).",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def reset_settings() -> None:
+    """Clear the ``get_settings()`` cache — re-reads env/.env on next call.
+
+    Useful in tests that mutate environment variables between cases.
+    """
+    get_settings.cache_clear()

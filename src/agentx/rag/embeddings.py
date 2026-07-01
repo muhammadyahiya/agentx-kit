@@ -465,6 +465,52 @@ AnyEmbeddingConfig = Annotated[
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Name → config class registry (single source of truth — was duplicated in
+# cli.py and pipeline.py before Sprint 1 refactor).
+# ──────────────────────────────────────────────────────────────────────────────
+
+_PROVIDER_CONFIG_MAP: dict[str, type[EmbeddingConfig]] = {
+    "huggingface": HuggingFaceEmbeddingConfig,
+    "hf": HuggingFaceEmbeddingConfig,
+    "openai": OpenAIEmbeddingConfig,
+    "azure": AzureOpenAIEmbeddingConfig,
+    "cohere": CohereEmbeddingConfig,
+    "google": GoogleEmbeddingConfig,
+    "bedrock": BedrockEmbeddingConfig,
+    "aws": BedrockEmbeddingConfig,
+    "voyage": VoyageEmbeddingConfig,
+    "ollama": OllamaEmbeddingConfig,
+}
+
+
+def embedding_config_from_name(
+    name: str, model: str | None = None, **kwargs
+) -> EmbeddingConfig | None:
+    """Build an EmbeddingConfig from a short provider name.
+
+    Returns ``None`` for unknown or empty names.  Callers should treat that as
+    'no provider selected — use auto_embeddings() or keyword fallback'.
+
+    Args:
+        name: Provider slug (``"huggingface"``, ``"openai"``, …).
+        model: Optional model override — passed as ``model=`` to the config.
+        **kwargs: Additional keyword args forwarded to the config constructor.
+    """
+    key = (name or "").strip().lower()
+    cls = _PROVIDER_CONFIG_MAP.get(key)
+    if cls is None:
+        return None
+    if model:
+        kwargs["model"] = model
+    return cls(**kwargs)
+
+
+def known_embedding_providers() -> list[str]:
+    """Return the sorted list of canonical embedding provider names."""
+    return sorted(set(_PROVIDER_CONFIG_MAP.keys()))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Public factory
 # ──────────────────────────────────────────────────────────────────────────────
 

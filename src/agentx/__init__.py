@@ -16,7 +16,7 @@ is enough to get started.
 """
 from __future__ import annotations
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 from .providers import (  # noqa: E402
     ProviderSpec,
@@ -25,6 +25,7 @@ from .providers import (  # noqa: E402
     list_providers,
 )
 from .guardrails import GuardrailError, apply_guards  # noqa: E402
+from .agents import AgentResult, AutonomousAgent, ResearchAgent, ResearchResult  # noqa: E402
 from .logging_config import get_logger, setup_logging  # noqa: E402
 from .observability import get_callbacks, setup_tracing, telemetry_enabled  # noqa: E402
 from .rag import (  # noqa: E402
@@ -66,6 +67,11 @@ __all__ = [
     # logging
     "setup_logging",
     "get_logger",
+    # agents
+    "AutonomousAgent",
+    "ResearchAgent",
+    "AgentResult",
+    "ResearchResult",
     # embeddings
     "get_embeddings",
     "auto_embeddings",

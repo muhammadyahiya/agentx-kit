@@ -1,13 +1,52 @@
-"""Built-in tools usable by agents. Currently: a keyless web search.
+"""Built-in tools usable by agents: keyless web search + safe URL fetch.
 
-Uses the ``ddgs`` (DuckDuckGo) package if available; otherwise the tool returns
-a friendly message instead of failing.
+* ``web_search`` uses ``ddgs`` (DuckDuckGo) when available.
+* ``fetch_url`` performs a safe GET with a size cap and HTML strip.
+
+Both helpers are used by ``AutonomousAgent`` and ``ResearchAgent`` — extracted
+here to keep the implementation in one place.
 """
 from __future__ import annotations
 
 import logging
+import re
+import urllib.error
+import urllib.request
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_url(url: str, max_chars: int = 8000, timeout: int = 15) -> str:
+    """Fetch ``url`` and return a plain-text (HTML-stripped) snippet.
+
+    Args:
+        url: HTTP/HTTPS URL to fetch.
+        max_chars: Truncate the returned string to this many characters.
+        timeout: Socket timeout in seconds.
+
+    Only ``http://`` and ``https://`` URLs are honoured — attempts to use
+    ``file://`` or other schemes are rejected.  Returns a diagnostic string on
+    error rather than raising, so LLM tool-callers can recover gracefully.
+    """
+    if not url or not isinstance(url, str):
+        return "fetch_url error: url must be a non-empty string"
+    scheme = url.split(":", 1)[0].lower()
+    if scheme not in ("http", "https"):
+        return f"fetch_url error: only http/https URLs are allowed (got {scheme!r})"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "agentx-bot/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read(65536).decode("utf-8", errors="replace")
+        text = re.sub(r"<[^>]+>", " ", raw)
+        text = re.sub(r"\s{2,}", " ", text).strip()
+        return text[:max_chars]
+    except urllib.error.HTTPError as exc:
+        return f"fetch_url HTTP error: {exc.code} {exc.reason}"
+    except urllib.error.URLError as exc:
+        return f"fetch_url URL error: {exc.reason}"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("fetch_url unexpected error for %s: %s", url, exc)
+        return f"fetch_url error: {exc}"
 
 
 def web_search(query: str, max_results: int = 5) -> str:

@@ -330,5 +330,298 @@ def prompt_remove(
     console.print(f"[green]✓[/] Removed agent '{agent}'.")
 
 
+# --------------------------------------------------------------------------- #
+# `agentx rag …` — manage the RAG knowledge base of a generated project
+# --------------------------------------------------------------------------- #
+rag_app = typer.Typer(help="Manage the RAG knowledge base (upload docs, rebuild index).", no_args_is_help=True)
+app.add_typer(rag_app, name="rag")
+
+
+def _find_knowledge_dir(project: Path | None, *, create: bool = False) -> Path:
+    """Resolve the knowledge/ directory for a generated agentx project.
+
+    Args:
+        project: Project root override (defaults to a walk-up search from cwd).
+        create: When True, create the directory if missing.  Read-only commands
+            (list/build) pass False so they don't leave empty ``knowledge/``
+            folders behind.
+    """
+    base = project or Path.cwd()
+    for parent in [base, *base.parents]:
+        if (parent / "agentx.json").exists():
+            kdir = parent / "knowledge"
+            if create:
+                kdir.mkdir(parents=True, exist_ok=True)
+            return kdir
+    kdir = base / "knowledge"
+    if create:
+        kdir.mkdir(parents=True, exist_ok=True)
+    return kdir
+
+
+@rag_app.command("upload")
+def rag_upload(
+    files: list[Path] = typer.Argument(..., help="Files to upload (PDF, Excel, CSV, Word, TXT, MD)."),
+    project: Path = typer.Option(None, "--project", "-p", help="Project root (auto-detected from cwd)."),
+    rebuild: bool = typer.Option(True, "--rebuild/--no-rebuild", help="Rebuild the vector index after upload."),
+    vector_store: str = typer.Option("", "--store", "-s", help="faiss | chroma | memory (reads from agentx.json if blank)."),
+    embedding_provider: str = typer.Option("", "--embedding", "-e", help="Embedding provider override (e.g. huggingface, openai)."),
+) -> None:
+    """Upload documents to the project knowledge base and (optionally) rebuild the index.
+
+    Supports PDF, Excel (.xlsx/.xls), CSV, Word (.docx), TXT, and Markdown files.
+    Documents are copied to the project's knowledge/ directory, then the RAG
+    index is rebuilt with the configured (or auto-detected) embedding provider.
+
+    Examples:
+
+        agentx rag upload report.pdf data.xlsx notes.md
+
+        agentx rag upload *.pdf --store faiss --embedding huggingface
+
+        agentx rag upload contract.pdf --no-rebuild   # add file only, rebuild later
+    """
+    import json as _json
+    import shutil
+
+    from .rag import RAGConfig, build_index_from_directory
+    from .rag.embeddings import embedding_config_from_name
+
+    kdir = _find_knowledge_dir(project, create=True)
+    console.print(f"[cyan]Knowledge directory:[/] {kdir}")
+
+    # Copy files
+    copied: list[Path] = []
+    for fp in files:
+        if not fp.exists():
+            console.print(f"[yellow]Warning: file not found — {fp}[/]")
+            continue
+        dest = kdir / fp.name
+        shutil.copy2(fp, dest)
+        copied.append(dest)
+        console.print(f"  [green]✓[/] {fp.name} → knowledge/{fp.name}")
+
+    if not copied:
+        console.print("[red]No files were copied.[/]")
+        raise typer.Exit(1)
+
+    console.print(f"\nCopied {len(copied)} file(s).")
+
+    if not rebuild:
+        console.print("[dim]Skipping index rebuild (--no-rebuild). Run `agentx rag build` to rebuild.[/]")
+        return
+
+    # Read project config for vector store / embedding
+    proj_root = kdir.parent
+    manifest_path = proj_root / "agentx.json"
+    vs = vector_store
+    ep = embedding_provider
+    if manifest_path.exists():
+        try:
+            manifest = _json.loads(manifest_path.read_text())
+            if not vs:
+                vs = manifest.get("features", {}).get("vector_store") or "chroma"
+            if not ep:
+                ep = manifest.get("features", {}).get("embedding_provider") or ""
+        except Exception:  # noqa: BLE001
+            pass
+    vs = vs or "chroma"
+    persist = str(proj_root / f".{vs}")
+
+    console.print(f"\n[cyan]Rebuilding index:[/] vector_store={vs} embedding={ep or 'auto'} …")
+
+    try:
+        emb_cfg = embedding_config_from_name(ep) if ep else None
+        cfg = RAGConfig(vector_store=vs, persist_dir=persist)
+        index = build_index_from_directory(kdir, config=cfg, embedding_config=emb_cfg)
+        console.print(
+            f"[green]✓[/] Index built: [bold]{len(index)} chunks[/] "
+            f"in [bold]{index.store_type}[/] store → {persist}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[yellow]Index build failed: {exc}[/]")
+        console.print("[dim]The knowledge files were copied; rebuild manually once dependencies are installed.[/]")
+
+
+@rag_app.command("build")
+def rag_build(
+    project: Path = typer.Option(None, "--project", "-p", help="Project root."),
+    vector_store: str = typer.Option("", "--store", "-s", help="faiss | chroma | memory"),
+    embedding_provider: str = typer.Option("", "--embedding", "-e", help="Embedding provider."),
+) -> None:
+    """Rebuild the RAG vector index from all files in knowledge/."""
+    import json as _json
+
+    from .rag import RAGConfig, build_index_from_directory
+    from .rag.embeddings import embedding_config_from_name
+
+    kdir = _find_knowledge_dir(project, create=False)
+    if not kdir.exists():
+        console.print(
+            f"[red]No knowledge/ directory found[/] (looked in {kdir}). "
+            "Run `agentx rag upload <file>` first."
+        )
+        raise typer.Exit(2)
+
+    docs = [
+        f for f in kdir.rglob("*")
+        if f.is_file() and f.name != "README.md" and not f.name.startswith(".")
+    ]
+    if not docs:
+        console.print(
+            f"[yellow]No documents found in {kdir}.[/] "
+            "Use `agentx rag upload <file>` to add PDF, Excel, CSV, Word, TXT, or MD files."
+        )
+        raise typer.Exit(2)
+
+    proj_root = kdir.parent
+    manifest_path = proj_root / "agentx.json"
+
+    vs = vector_store
+    ep = embedding_provider
+    if manifest_path.exists():
+        try:
+            manifest = _json.loads(manifest_path.read_text())
+            if not vs:
+                vs = manifest.get("features", {}).get("vector_store") or "chroma"
+            if not ep:
+                ep = manifest.get("features", {}).get("embedding_provider") or ""
+        except Exception:  # noqa: BLE001
+            pass
+    vs = vs or "chroma"
+    persist = str(proj_root / f".{vs}")
+
+    console.print(f"[cyan]Building RAG index:[/] store={vs} embedding={ep or 'auto'} docs={len(docs)} …")
+    try:
+        emb_cfg = embedding_config_from_name(ep) if ep else None
+        cfg = RAGConfig(vector_store=vs, persist_dir=persist)
+        index = build_index_from_directory(kdir, config=cfg, embedding_config=emb_cfg)
+        if len(index) == 0:
+            console.print("[red]Index built but empty — no chunks were produced from your documents.[/]")
+            raise typer.Exit(3)
+        console.print(
+            f"[green]✓[/] {len(index)} chunks indexed in {index.store_type} → {persist}"
+        )
+    except typer.Exit:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]Build failed: {exc}[/]")
+        raise typer.Exit(1) from exc
+
+
+@rag_app.command("list")
+def rag_list(
+    project: Path = typer.Option(None, "--project", "-p", help="Project root."),
+) -> None:
+    """List documents in the knowledge base."""
+    kdir = _find_knowledge_dir(project, create=False)
+    if not kdir.exists():
+        console.print(
+            f"[yellow]No knowledge/ directory found[/] (looked in {kdir}). "
+            "Use `agentx rag upload <file>` to add documents."
+        )
+        return
+    files = [f for f in kdir.rglob("*") if f.is_file() and f.name != "README.md"]
+    if not files:
+        console.print("[yellow]knowledge/ is empty. Use `agentx rag upload <file>` to add documents.[/]")
+        return
+    table = Table(title=f"Knowledge base — {kdir}")
+    table.add_column("file", style="cyan")
+    table.add_column("type")
+    table.add_column("size")
+    for f in sorted(files):
+        size = f.stat().st_size
+        size_str = f"{size // 1024} KB" if size >= 1024 else f"{size} B"
+        table.add_row(f.name, f.suffix.lstrip(".").upper() or "—", size_str)
+    console.print(table)
+
+
+# --------------------------------------------------------------------------- #
+# `agentx agent …` — run autonomous / research agents
+# --------------------------------------------------------------------------- #
+agent_app = typer.Typer(help="Run autonomous and research agents.", no_args_is_help=True)
+app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command("run")
+def agent_run(
+    goal: str = typer.Argument(..., help="Goal for the autonomous agent."),
+    provider: str = typer.Option("openai", "--provider", "-p"),
+    model: str = typer.Option("", "--model", "-m"),
+    workspace: Path = typer.Option(Path("./workspace"), "--workspace", "-w"),
+    max_iterations: int = typer.Option(20, "--max-iter"),
+    allow_shell: bool = typer.Option(False, "--allow-shell", help="Allow shell command execution."),
+) -> None:
+    """Run an autonomous agent towards a goal.
+
+    The agent plans, searches the web, reads/writes files, and works until it
+    reaches the goal or hits the iteration cap.
+
+    Example:
+
+        agentx agent run "Research the top 5 RAG frameworks and write a report"
+    """
+    from .agents import AutonomousAgent
+
+    console.print(f"[cyan]Autonomous agent:[/] {goal}")
+    console.print(f"  provider={provider} workspace={workspace} max_iter={max_iterations}\n")
+
+    agent = AutonomousAgent.create(
+        goal=goal, provider=provider, model=model,
+        workspace=str(workspace), max_iterations=max_iterations,
+        allow_shell=allow_shell,
+    )
+    result = agent.run()
+    if result.success:
+        console.print(Panel(result.summary[:2000], title="[green]Agent Result[/]", border_style="green"))
+        if result.artifacts:
+            console.print(f"\nArtifacts ({len(result.artifacts)}):")
+            for a in result.artifacts[:10]:
+                console.print(f"  • {a}")
+    else:
+        console.print(f"[red]Agent failed:[/] {result.error}")
+        raise typer.Exit(1)
+
+
+@agent_app.command("research")
+def agent_research(
+    topic: str = typer.Argument(..., help="Research topic or question."),
+    provider: str = typer.Option("openai", "--provider", "-p"),
+    model: str = typer.Option("", "--model", "-m"),
+    depth: str = typer.Option("standard", "--depth", "-d", help="quick | standard | deep"),
+    output: Path = typer.Option(None, "--output", "-o", help="Save report to this file."),
+) -> None:
+    """Run a research agent to produce a sourced research report.
+
+    Example:
+
+        agentx agent research "LLM inference optimisation 2025" --depth deep -o report.md
+    """
+    from .agents import ResearchAgent
+
+    console.print(f"[cyan]Research agent:[/] {topic} (depth={depth})")
+
+    agent = ResearchAgent.create(
+        topic=topic, provider=provider, model=model,
+        depth=depth, output_file=str(output) if output else None,
+    )
+    result = agent.run()
+    if result.success:
+        console.print(Panel(
+            result.markdown[:3000] + ("…" if len(result.markdown) > 3000 else ""),
+            title="[green]Research Report[/]",
+            border_style="green",
+        ))
+        console.print(
+            f"\n[dim]Queries: {result.queries_run} | URLs: {result.urls_visited} | "
+            f"Citations: {len(result.citations)}[/]"
+        )
+        if output:
+            console.print(f"[green]✓[/] Report saved → {output}")
+    else:
+        console.print(f"[red]Research failed:[/] {result.error}")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

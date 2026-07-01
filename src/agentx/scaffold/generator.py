@@ -68,9 +68,21 @@ def _extras(spec: ProjectSpec) -> list[str]:
     if spec.serve:
         extras.add("server")
     # Deterministic order for reproducible pyproject output.
+    if spec.use_rag:
+        # Add embedding provider extra when explicitly set
+        if spec.embedding_provider in {"huggingface", "hf"}:
+            extras.add("huggingface")
+        elif spec.embedding_provider == "cohere":
+            extras.add("cohere")
+        elif spec.embedding_provider == "voyage":
+            extras.add("voyage")
+        # Add FAISS extra when selected
+        if spec.vector_store == "faiss":
+            extras.add("faiss")
+
     order = ["langgraph", "crewai", "openai", "azure", "openrouter", "anthropic",
-             "google", "vertex", "bedrock", "groq", "ollama", "rag", "mcp",
-             "observability", "server"]
+             "google", "vertex", "bedrock", "groq", "ollama", "huggingface",
+             "cohere", "voyage", "rag", "faiss", "mcp", "observability", "server"]
     return [e for e in order if e in extras]
 
 
@@ -143,6 +155,9 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
         "orchestration": spec.orchestration,
         "features": {
             "rag": spec.use_rag,
+            "vector_store": spec.vector_store if spec.use_rag else None,
+            "embedding_provider": spec.embedding_provider if spec.use_rag else None,
+            "agent_mode": spec.agent_mode,
             "memory": spec.memory,
             "mcp": spec.use_mcp,
             "skills": spec.use_skills,

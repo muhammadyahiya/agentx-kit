@@ -1,34 +1,38 @@
 """FastAPI server for {{ spec.slug }} — REST + SSE streaming.
 
-Run:  uv run uvicorn {{ pkg }}.server:app --reload --port 8000
-Endpoints: GET /health, POST /chat, GET /chat/stream?message=...
+Run:
+    uv run uvicorn {{ pkg }}.server:app --reload --port 8000
 
-Conversation memory is partitioned by ``session_id``: pass a stable id per user
-to keep context across turns, or omit it to get a fresh, isolated conversation
-every request. Requests without a session_id NEVER share history.
+Endpoints:
+    GET  /health              — liveness probe
+    POST /chat                — single-turn chat, returns JSON {reply, session_id}
+    GET  /chat/stream         — SSE stream: ?message=...&session_id=...
 """
 from __future__ import annotations
 
 import json
 import logging
 import uuid
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 {% if spec.observability %}
 from .observability import init_observability
-
-init_observability()
 {% endif %}
 {% if spec.use_cache %}
 from agentx.cache import enable_caching
-
-enable_caching()
 {% endif %}
 {% if spec.guardrails %}
 from .guardrails import guard_input, guard_output
@@ -38,64 +42,135 @@ from .graph import arun_text, stream_text
 {% else %}
 import asyncio
 
-from .crew import run_text
-{% endif %}
+from .crew import run_text as _crew_run_text
 
-app = FastAPI(title="{{ spec.slug }}", version="0.1.0")
+async def arun_text(message: str, thread_id: str = "default") -> str:  # type: ignore[misc]
+    return await asyncio.to_thread(_crew_run_text, message, thread_id)
 
-
-class ChatIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=8000, description="User message.")
-    # Stable id to keep conversation memory across turns; blank → isolated.
-    session_id: str = Field(default="", max_length=128)
-
-
-def _session(session_id: str) -> str:
-    return session_id or f"anon-{uuid.uuid4().hex}"
-
-
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok", "service": "{{ spec.slug }}"}
-
-
-@app.post("/chat")
-async def chat(body: ChatIn) -> dict:
-    message = body.message
-{% if spec.guardrails %}
-    message = guard_input(message).text
-{% endif %}
-{% if spec.framework == 'langgraph' %}
-    reply = await arun_text(message, thread_id=_session(body.session_id))
-{% else %}
-    reply = await asyncio.to_thread(run_text, message, _session(body.session_id))
-{% endif %}
+async def stream_text(message: str, thread_id: str = "default"):  # type: ignore[misc]
+    reply = await arun_text(message, thread_id)
 {% if spec.guardrails %}
     reply = guard_output(reply).text
 {% endif %}
-    return {"reply": reply}
-
-
-@app.get("/chat/stream")
-def chat_stream(message: str, session_id: str = "") -> StreamingResponse:
-    """Server-Sent Events stream of the reply, token-by-token."""
-{% if spec.guardrails %}
-    message = guard_input(message).text
+    for chunk in reply.split(" "):
+        yield chunk + " "
 {% endif %}
-    thread_id = _session(session_id)
+
+
+# ── Lifespan ─────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+{% if spec.observability %}
+    init_observability()
+{% endif %}
+{% if spec.use_cache %}
+    enable_caching()
+{% endif %}
+    logger.info("{{ spec.slug }} server starting up")
+    yield
+    logger.info("{{ spec.slug }} server shutting down")
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="{{ spec.slug }}",
+    version="0.1.0",
+    description="AgentX-powered agent API.",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _new_session() -> str:
+    return f"session-{uuid.uuid4().hex[:8]}"
+
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=16000, description="User message.")
+    session_id: str = Field(
+        default="",
+        max_length=128,
+        description="Stable session id for multi-turn memory. Blank → new session.",
+    )
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    session_id: str
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/health", tags=["system"])
+async def health() -> dict:
+    """Liveness probe."""
+    return {"status": "ok", "service": "{{ spec.slug }}"}
+
+
+@app.post("/chat", response_model=ChatResponse, tags=["chat"])
+async def chat(body: ChatRequest) -> ChatResponse:
+    """Single-turn chat. Returns the complete reply once the model finishes."""
+    session_id = body.session_id or _new_session()
+    message = body.message
+{% if spec.guardrails %}
+    try:
+        message = guard_input(message).text
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+{% endif %}
+    try:
+        reply = await arun_text(message, thread_id=session_id)
+    except Exception as exc:
+        logger.exception("chat invocation failed")
+        raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
+{% if spec.guardrails %}
+    reply = guard_output(reply).text
+{% endif %}
+    return ChatResponse(reply=reply, session_id=session_id)
+
+
+@app.get("/chat/stream", tags=["chat"])
+async def chat_stream(
+    message: str = Query(..., min_length=1, description="User message."),
+    session_id: str = Query(default="", description="Session id for memory continuity."),
+) -> StreamingResponse:
+    """Server-Sent Events stream — tokens arrive as they're generated."""
+    sid = session_id or _new_session()
+{% if spec.guardrails %}
+    try:
+        message = guard_input(message).text
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+{% endif %}
 
     async def _events():
-{% if spec.framework == 'langgraph' %}
-        async for token in stream_text(message, thread_id=thread_id):
-            yield f"data: {json.dumps({'token': token})}\n\n"
-{% else %}
-        reply = await asyncio.to_thread(run_text, message, thread_id)
-{% if spec.guardrails %}
-        reply = guard_output(reply).text
-{% endif %}
-        for chunk in reply.split(" "):
-            yield f"data: {json.dumps({'token': chunk + ' '})}\n\n"
-{% endif %}
+        try:
+            async for token in stream_text(message, thread_id=sid):
+                if token:
+                    yield f"data: {json.dumps({'token': token, 'session_id': sid})}\n\n"
+        except Exception as exc:
+            logger.exception("stream_text failed")
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(_events(), media_type="text/event-stream")
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Session-Id": sid,
+        },
+    )

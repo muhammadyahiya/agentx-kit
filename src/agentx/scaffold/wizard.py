@@ -8,11 +8,31 @@ from __future__ import annotations
 import questionary
 
 from ..providers import all_specs, get_spec
-from .spec import AgentSpec, ProjectSpec
+from .spec import AgentSpec, ProjectSpec, VectorStoreBackend
 
 _FRAMEWORKS = [
     ("LangGraph (LangChain)", "langgraph"),
     ("CrewAI", "crewai"),
+]
+_AGENT_MODES = [
+    ("Chat  — interactive REPL / API (default)", "chat"),
+    ("Autonomous  — goal-directed agent that plans and acts independently", "autonomous"),
+    ("Research  — multi-step web research with citations and report generation", "research"),
+]
+_VECTOR_STORES = [
+    ("Chroma  — persistent, server-less, easy setup (default)", "chroma"),
+    ("FAISS   — fast in-process ANN search, saves to .faiss/ folder", "faiss"),
+    ("Memory  — in-memory keyword retrieval, no embeddings required", "memory"),
+]
+_EMBEDDING_PROVIDERS = [
+    ("Auto-detect  — HuggingFace local → OpenAI → Ollama (recommended)", ""),
+    ("HuggingFace  — local sentence-transformers, no API key needed", "huggingface"),
+    ("OpenAI        — text-embedding-3-small (needs OPENAI_API_KEY)", "openai"),
+    ("Cohere        — embed-english-v3.0 (needs COHERE_API_KEY)", "cohere"),
+    ("Ollama        — nomic-embed-text, fully local", "ollama"),
+    ("Google        — text-embedding-004 (needs GOOGLE_API_KEY)", "google"),
+    ("Bedrock       — Titan embeddings (needs AWS credentials)", "bedrock"),
+    ("Voyage AI     — voyage-3, high-quality retrieval (needs VOYAGE_API_KEY)", "voyage"),
 ]
 _MEMORY = [
     ("None", "none"),
@@ -53,6 +73,11 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
     framework = _select("Agent framework:", _FRAMEWORKS, "langgraph")
     if framework is None:
         return None
+
+    # Agent mode
+    agent_mode = _select("Agent mode:", _AGENT_MODES, "chat")
+    if agent_mode is None:
+        agent_mode = "chat"
 
     # Provider + model
     provider_choices = [
@@ -103,6 +128,21 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
 
     # Capabilities — one by one
     use_rag = questionary.confirm("Add a RAG module (knowledge base)?", default=False).ask()
+
+    vector_store: VectorStoreBackend = "chroma"
+    embedding_provider: str = ""
+    if use_rag:
+        questionary.print("\nRAG settings:", style="bold fg:cyan")
+        vector_store = _select(
+            "  Vector store backend:", _VECTOR_STORES, "chroma"
+        ) or "chroma"
+        embedding_provider = _select(
+            "  Embedding provider:", _EMBEDDING_PROVIDERS, ""
+        ) or ""
+        questionary.print(
+            "  Tip: upload documents later with:  agentx rag upload <file> --project ./",
+            style="dim",
+        )
     memory = _select("Agent memory:", _MEMORY, "none")
     use_mcp = questionary.confirm("Integrate MCP tools?", default=False).ask()
     use_skills = questionary.confirm("Add a skills registry?", default=False).ask()
@@ -135,7 +175,10 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         model=model,
         agents=agents,
         orchestration=orchestration,
+        agent_mode=agent_mode,
         use_rag=bool(use_rag),
+        vector_store=vector_store,
+        embedding_provider=embedding_provider,
         memory=memory or "none",
         use_mcp=bool(use_mcp),
         use_skills=bool(use_skills),

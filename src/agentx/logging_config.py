@@ -18,6 +18,8 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 _FMT = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%S"
 
+_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
 _configured = False
 
 
@@ -34,27 +36,51 @@ def setup_logging(
     not interfere with the host application's logging setup.
 
     Args:
-        level: Log level string ("DEBUG", "INFO", "WARNING", …).
+        level: Log level string ("DEBUG", "INFO", "WARNING", …). Invalid
+            values raise ``ValueError`` — no silent fallback.
         fmt: Log format string. Defaults to timestamped module-aware format.
         handler: Custom handler to attach. Defaults to stderr StreamHandler.
         force: Re-configure even if already set up.
     """
     global _configured
-    if _configured and not force:
-        return
+
+    level_str = level.upper() if isinstance(level, str) else "INFO"
+    if level_str not in _VALID_LEVELS:
+        raise ValueError(
+            f"Invalid log level {level!r}; expected one of {sorted(_VALID_LEVELS)}"
+        )
+    level_int = getattr(logging, level_str)
 
     root = logging.getLogger("agentx")
+
+    if _configured and not force:
+        # Apply level/formatter to existing handlers so pre-existing plain
+        # handlers get our formatter (fixes T1-Bug9).
+        formatter = logging.Formatter(fmt, datefmt=_DATEFMT)
+        for h in root.handlers:
+            if h.formatter is None:
+                h.setFormatter(formatter)
+        root.setLevel(level_int)
+        return
+
     if root.handlers and not force:
+        formatter = logging.Formatter(fmt, datefmt=_DATEFMT)
+        for h in root.handlers:
+            if h.formatter is None:
+                h.setFormatter(formatter)
+        root.setLevel(level_int)
+        root.propagate = False
         _configured = True
         return
 
+    # Fresh configuration
     for h in root.handlers[:]:
         root.removeHandler(h)
 
     h = handler or logging.StreamHandler(sys.stderr)
     h.setFormatter(logging.Formatter(fmt, datefmt=_DATEFMT))
     root.addHandler(h)
-    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+    root.setLevel(level_int)
     root.propagate = False
     _configured = True
 
@@ -62,9 +88,14 @@ def setup_logging(
 def get_logger(name: str) -> logging.Logger:
     """Return a child logger under the ``agentx`` namespace.
 
-    Equivalent to ``logging.getLogger("agentx.<name>")``.  Modules within
-    agentx should use ``logging.getLogger(__name__)`` directly; this helper is
-    for user code that wants a named agentx-namespaced logger.
+    ``get_logger("foo")``  → ``agentx.foo``
+    ``get_logger("")``     → ``agentx``
+    ``get_logger("agentx.bar")`` → ``agentx.bar`` (unchanged)
+
+    Never produces a trailing dot or escapes the ``agentx.*`` hierarchy.
     """
-    qualified = f"agentx.{name}" if not name.startswith("agentx") else name
-    return logging.getLogger(qualified)
+    if not name:
+        return logging.getLogger("agentx")
+    if name == "agentx" or name.startswith("agentx."):
+        return logging.getLogger(name)
+    return logging.getLogger(f"agentx.{name}")
