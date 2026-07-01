@@ -43,10 +43,12 @@ from .rag import (  # noqa: E402
     get_embeddings,
 )
 from .reliability import (  # noqa: E402
+    RateLimiter,
     UsageLimitExceeded,
     UsageLimits,
     UsageTracker,
     build_resilient_chat,
+    rate_limited_callback,
 )
 from .structured import structured_model  # noqa: E402
 from .insights import (  # noqa: E402
@@ -93,6 +95,8 @@ __all__ = [
     "UsageLimits",
     "UsageTracker",
     "UsageLimitExceeded",
+    "RateLimiter",
+    "rate_limited_callback",
     "apply_guards",
     "GuardrailError",
     "structured_model",

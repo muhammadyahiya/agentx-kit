@@ -49,7 +49,7 @@ _DEPTH_PARAMS: dict[ResearchDepth, dict] = {
 class ResearchAgentConfig(BaseModel):
     """Configuration for a ResearchAgent."""
 
-    topic: str = Field(..., min_length=1, description="Research question or topic.")
+    topic: str = Field(..., min_length=1, max_length=4000, description="Research question or topic.")
     provider: str = "openai"
     model: str = ""
     depth: ResearchDepth = "standard"
@@ -60,6 +60,10 @@ class ResearchAgentConfig(BaseModel):
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     include_citations: bool = True
     report_format: Literal["markdown", "plain"] = "markdown"
+    guard_input: bool = Field(
+        default=True,
+        description="Apply default_input_guards to the research topic before running.",
+    )
 
     model_config = {"extra": "allow"}
 
@@ -211,11 +215,20 @@ class ResearchAgent:
 
         cfg = self.config
         params = _DEPTH_PARAMS[cfg.depth]
+
+        topic = cfg.topic
+        if cfg.guard_input:
+            from ..guardrails import apply_guards, default_input_guards
+            result = apply_guards(topic, default_input_guards(max_chars=4000))
+            topic = result.text
+            if result.violations:
+                logger.info("Input guards applied to topic: %s", result.violations)
+
         llm = get_chat_model(cfg.provider, cfg.model or None, temperature=cfg.temperature)
         tools, citations = _make_research_tools(cfg)
 
         system = _RESEARCH_SYSTEM.format(
-            topic=cfg.topic,
+            topic=topic,
             format=cfg.report_format,
         )
 
@@ -231,7 +244,7 @@ class ResearchAgent:
             )
 
             result = await agent.ainvoke(
-                {"messages": [HumanMessage(content=f"Research this topic thoroughly: {cfg.topic}")]},
+                {"messages": [HumanMessage(content=f"Research this topic thoroughly: {topic}")]},
                 config={
                     "configurable": {"thread_id": "research"},
                     "recursion_limit": params["max_iterations"] * 2,

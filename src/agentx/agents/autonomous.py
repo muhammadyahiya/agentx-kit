@@ -62,7 +62,7 @@ _SHELL_DENYLIST = frozenset({
 class AutonomousAgentConfig(BaseModel):
     """Configuration for an AutonomousAgent."""
 
-    goal: str = Field(..., min_length=1, description="High-level goal the agent should accomplish.")
+    goal: str = Field(..., min_length=1, max_length=8000, description="High-level goal the agent should accomplish.")
     provider: str = "openai"
     model: str = ""
     workspace: str = "./workspace"
@@ -74,6 +74,10 @@ class AutonomousAgentConfig(BaseModel):
     )
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     verbose: bool = True
+    guard_input: bool = Field(
+        default=True,
+        description="Apply default_input_guards (length cap + banned words) to the goal.",
+    )
 
     model_config = {"extra": "allow"}
 
@@ -354,11 +358,20 @@ class AutonomousAgent:
         from ..providers import get_chat_model
 
         cfg = self.config
+
+        goal = cfg.goal
+        if cfg.guard_input:
+            from ..guardrails import apply_guards, default_input_guards
+            result = apply_guards(goal, default_input_guards(max_chars=8000))
+            goal = result.text
+            if result.violations:
+                logger.info("Input guards applied: %s", result.violations)
+
         llm = get_chat_model(cfg.provider, cfg.model or None, temperature=cfg.temperature)
         tools = _make_tools(self.workspace, cfg)
 
         system = _SYSTEM_TEMPLATE.format(
-            goal=cfg.goal,
+            goal=goal,
             workspace=str(self.workspace),
         )
 
@@ -375,7 +388,7 @@ class AutonomousAgent:
             )
 
             result = await agent.ainvoke(
-                {"messages": [HumanMessage(content=cfg.goal)]},
+                {"messages": [HumanMessage(content=goal)]},
                 config={"configurable": {"thread_id": "auto"}, "recursion_limit": cfg.max_iterations * 2},
             )
 

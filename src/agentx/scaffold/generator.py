@@ -178,43 +178,66 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
 
 
 def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool = False) -> GenerationResult:
-    """Render the project for ``spec`` into ``target_dir``."""
+    """Render the project for ``spec`` into ``target_dir`` atomically.
+
+    Files are first rendered into a sibling temp directory and only moved into
+    place once every template has been rendered successfully.  This prevents
+    partial project trees when generation is interrupted.
+    """
+    import tempfile as _tempfile
+
     target = Path(target_dir).expanduser().resolve()
     if target.exists() and any(target.iterdir()) and not overwrite:
         raise FileExistsError(f"Target directory '{target}' exists and is not empty. Use overwrite=True.")
-    target.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
 
     env = _env()
     ctx = _context(spec)
-    written: list[Path] = []
     messages: list[str] = []
 
-    for template_name, out_rel in _COMMON_FILES + _conditional_files(spec):
-        out_path = target / out_rel.format(pkg=spec.package)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        rendered = env.get_template(template_name).render(**ctx)
-        out_path.write_text(rendered, encoding="utf-8")
-        written.append(out_path)
+    # Render into a temp dir alongside the target so shutil.move is a rename
+    # on the same filesystem (fast + atomic within-fs).
+    staging = Path(_tempfile.mkdtemp(prefix=f"{spec.slug}.", dir=str(target.parent)))
+    try:
+        staged_written: list[Path] = []
 
-    # Seed a knowledge/ directory when RAG or the MCP filesystem server needs one
-    # (the restricted MCP server points at ./knowledge and RAG indexes it).
-    if spec.use_rag or spec.use_mcp:
-        knowledge_dir = target / "knowledge"
-        knowledge_dir.mkdir(parents=True, exist_ok=True)
-        seed = knowledge_dir / "README.md"
-        if not seed.exists():
+        for template_name, out_rel in _COMMON_FILES + _conditional_files(spec):
+            out_path = staging / out_rel.format(pkg=spec.package)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            rendered = env.get_template(template_name).render(**ctx)
+            out_path.write_text(rendered, encoding="utf-8")
+            staged_written.append(out_path)
+
+        # Seed knowledge/ when needed.
+        if spec.use_rag or spec.use_mcp:
+            knowledge_dir = staging / "knowledge"
+            knowledge_dir.mkdir(parents=True, exist_ok=True)
+            seed = knowledge_dir / "README.md"
             seed.write_text(
                 f"# {spec.slug} knowledge base\n\n"
-                "Drop `.txt` / `.md` files here. They are indexed for RAG"
-                " and exposed (read-only) to the MCP filesystem tool.\n",
+                "Drop PDF, Excel, CSV, Word, TXT, or Markdown files here. "
+                "They are indexed for RAG and exposed (read-only) to the MCP "
+                "filesystem tool.\n",
                 encoding="utf-8",
             )
-        written.append(seed)
+            staged_written.append(seed)
 
-    # The prompt source of truth — edited by hand or via `agentx prompt`.
-    written.append(prompts_store.write_prompts(target, spec))
-    # A single declarative manifest of the project (à la langgraph.json).
-    written.append(_write_manifest(target, spec))
+        staged_written.append(prompts_store.write_prompts(staging, spec))
+        staged_written.append(_write_manifest(staging, spec))
+
+        # Atomic swap: move staging → target. If target exists (overwrite=True),
+        # remove it first.
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.move(str(staging), str(target))
+    except Exception:
+        # Clean up the incomplete staging directory on any failure.
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    # Re-glob the target for the final list of written files (used for reporting).
+    written: list[Path] = [p for p in target.rglob("*") if p.is_file()]
 
     venv_created = synced = False
     uv = shutil.which("uv")

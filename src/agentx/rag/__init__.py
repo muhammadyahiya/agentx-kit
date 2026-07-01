@@ -20,6 +20,15 @@ from .embeddings import (
     get_embeddings,
 )
 from .loaders import LoaderConfig, load_directory, load_document
+from .manifest import (
+    DocumentEntry,
+    Manifest,
+    build_document_entry,
+    diff_directory,
+    hash_file,
+    load_manifest,
+    save_manifest,
+)
 from .pipeline import (
     RAGConfig,
     RagIndex,
@@ -43,6 +52,14 @@ __all__ = [
     "load_document",
     "load_directory",
     "LoaderConfig",
+    # Manifest
+    "Manifest",
+    "DocumentEntry",
+    "load_manifest",
+    "save_manifest",
+    "diff_directory",
+    "hash_file",
+    "build_document_entry",
     # Embedding factory
     "get_embeddings",
     "auto_embeddings",

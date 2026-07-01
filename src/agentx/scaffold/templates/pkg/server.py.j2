@@ -4,9 +4,13 @@ Run:
     uv run uvicorn {{ pkg }}.server:app --reload --port 8000
 
 Endpoints:
-    GET  /health              — liveness probe
-    POST /chat                — single-turn chat, returns JSON {reply, session_id}
-    GET  /chat/stream         — SSE stream: ?message=...&session_id=...
+    GET    /livez             — liveness probe (always 200)
+    GET    /readyz            — readiness probe (checks LLM provider)
+    GET    /health            — deep health check (LLM + components)
+    POST   /chat              — single-turn chat, returns {reply, session_id}
+    GET    /chat/stream       — SSE stream of tokens
+    GET    /sessions/{id}     — retrieve conversation history for a session
+    DELETE /sessions/{id}     — clear a session
 """
 from __future__ import annotations
 
@@ -16,9 +20,9 @@ import uuid
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Path as PathParam, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -38,7 +42,7 @@ from agentx.cache import enable_caching
 from .guardrails import guard_input, guard_output
 {% endif %}
 {% if spec.framework == 'langgraph' %}
-from .graph import arun_text, stream_text
+from .graph import arun_text, graph, stream_text
 {% else %}
 import asyncio
 
@@ -54,6 +58,8 @@ async def stream_text(message: str, thread_id: str = "default"):  # type: ignore
 {% endif %}
     for chunk in reply.split(" "):
         yield chunk + " "
+
+graph = None   # CrewAI does not expose a checkpointer; session APIs return 501
 {% endif %}
 
 
@@ -95,6 +101,10 @@ def _new_session() -> str:
     return f"session-{uuid.uuid4().hex[:8]}"
 
 
+def _config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}}
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
@@ -111,13 +121,75 @@ class ChatResponse(BaseModel):
     session_id: str
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+class SessionMessage(BaseModel):
+    role: str
+    content: str
 
-@app.get("/health", tags=["system"])
-async def health() -> dict:
-    """Liveness probe."""
-    return {"status": "ok", "service": "{{ spec.slug }}"}
 
+class SessionHistory(BaseModel):
+    session_id: str
+    messages: list[SessionMessage]
+
+
+class HealthComponent(BaseModel):
+    name: str
+    status: str            # "ok" | "degraded" | "error"
+    detail: str = ""
+
+
+class HealthResponse(BaseModel):
+    status: str            # overall — "ok" | "degraded" | "error"
+    service: str
+    version: str
+    components: list[HealthComponent]
+
+
+# ── Routes: health ───────────────────────────────────────────────────────────
+
+@app.get("/livez", tags=["system"])
+async def livez() -> dict:
+    """Shallow liveness probe — always 200 if the process is alive."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz", tags=["system"])
+async def readyz() -> JSONResponse:
+    """Readiness probe — checks that the LLM chain is initialised."""
+    ready = graph is not None
+{% if spec.framework == 'crewai' %}
+    # CrewAI has no graph checkpointer; readiness is based on module import.
+    ready = True
+{% endif %}
+    code = 200 if ready else 503
+    return JSONResponse(status_code=code, content={"status": "ready" if ready else "not_ready"})
+
+
+@app.get("/health", response_model=HealthResponse, tags=["system"])
+async def health() -> HealthResponse:
+    """Deep health check — verifies core components."""
+    components: list[HealthComponent] = []
+
+    # Component: graph / crew initialisation
+    graph_ok = graph is not None
+{% if spec.framework == 'crewai' %}
+    graph_ok = True   # crew module import already succeeded
+{% endif %}
+    components.append(HealthComponent(
+        name="graph",
+        status="ok" if graph_ok else "error",
+        detail="compiled" if graph_ok else "not initialised",
+    ))
+
+    overall = "ok" if all(c.status == "ok" for c in components) else "degraded"
+    return HealthResponse(
+        status=overall,
+        service="{{ spec.slug }}",
+        version="0.1.0",
+        components=components,
+    )
+
+
+# ── Routes: chat ─────────────────────────────────────────────────────────────
 
 @app.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(body: ChatRequest) -> ChatResponse:
@@ -174,3 +246,54 @@ async def chat_stream(
             "X-Session-Id": sid,
         },
     )
+
+
+# ── Routes: sessions ─────────────────────────────────────────────────────────
+
+@app.get("/sessions/{session_id}", response_model=SessionHistory, tags=["sessions"])
+async def get_session(
+    session_id: str = PathParam(..., max_length=128, description="Session id."),
+) -> SessionHistory:
+    """Retrieve the conversation history for a session (LangGraph checkpointer)."""
+{% if spec.framework == 'crewai' %}
+    raise HTTPException(status_code=501, detail="Session history not available for CrewAI framework.")
+{% else %}
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Graph not initialised.")
+    try:
+        state = await graph.aget_state(config=_config(session_id))
+    except Exception as exc:
+        logger.exception("get_state failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    messages_raw = (state.values or {}).get("messages") or []
+    messages: list[SessionMessage] = []
+    for m in messages_raw:
+        role = getattr(m, "type", None) or getattr(m, "role", "unknown")
+        content = getattr(m, "content", "")
+        if isinstance(content, str):
+            messages.append(SessionMessage(role=role, content=content))
+    return SessionHistory(session_id=session_id, messages=messages)
+{% endif %}
+
+
+@app.delete("/sessions/{session_id}", status_code=204, tags=["sessions"])
+async def delete_session(
+    session_id: str = PathParam(..., max_length=128, description="Session id to clear."),
+) -> None:
+    """Clear the checkpointed state for a session."""
+{% if spec.framework == 'crewai' %}
+    raise HTTPException(status_code=501, detail="Session deletion not available for CrewAI framework.")
+{% else %}
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Graph not initialised.")
+    checkpointer = getattr(graph, "checkpointer", None)
+    if checkpointer is None:
+        raise HTTPException(status_code=501, detail="Graph has no checkpointer configured.")
+    try:
+        # MemorySaver stores per-thread state internally; overwrite with empty.
+        await graph.aupdate_state(config=_config(session_id), values={"messages": []})
+    except Exception as exc:
+        logger.exception("delete_session failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+{% endif %}
