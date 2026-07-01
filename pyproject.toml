@@ -6,7 +6,7 @@ description = "An open-source, provider-agnostic agentic framework + interactive
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = { text = "MIT" }
-authors = [{ name = "AgentX" }]
+authors = [{ name = "OptimumAI" }]
 keywords = ["agents", "llm", "langchain", "crewai", "rag", "mcp", "scaffold", "openrouter", "bedrock", "vertex", "azure", "gemini"]
 classifiers = [
     "Development Status :: 4 - Beta",
