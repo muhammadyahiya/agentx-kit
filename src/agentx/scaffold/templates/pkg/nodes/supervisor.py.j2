@@ -1,0 +1,52 @@
+"""Node: supervisor — the LLM router for {{ spec.slug }}.
+
+Reads the conversation and decides which worker acts next (or FINISH). Returns
+``{"next": <worker|FINISH>}`` which the graph uses for conditional routing.
+"""
+from __future__ import annotations
+
+import logging
+
+from langchain_core.messages import SystemMessage
+
+from ..utils.llm import build_model
+
+logger = logging.getLogger(__name__)
+
+_SUPERVISOR_SYSTEM = (
+    "You are a supervisor routing work between these specialists: {workers}. "
+    "Read the conversation and decide who should act NEXT to make progress.\n"
+    "Rules:\n"
+    "- Reply with ONLY one token and nothing else.\n"
+    "- The token must be exactly one of: {choices}.\n"
+    "- Pick the single most relevant specialist for an unanswered request.\n"
+    "- Reply FINISH if the latest assistant message already answers the user, "
+    "or if no specialist can help further."
+)
+
+
+def make_supervisor(workers: list[str]):
+    """Build the supervisor node for the given worker names."""
+    choices = workers + ["FINISH"]
+    system = _SUPERVISOR_SYSTEM.format(workers=", ".join(workers), choices=", ".join(choices))
+
+    def supervisor(state) -> dict:
+        try:
+            response = build_model(bind_tools=False).invoke([SystemMessage(system)] + state["messages"])
+            raw = (response.content or "").strip()
+        except Exception:  # noqa: BLE001
+            logger.exception("supervisor routing failed; finishing")
+            return {"next": "FINISH"}
+        lowered = raw.lower()
+        choice = "FINISH"
+        for name in workers:
+            if name.lower() in lowered:
+                choice = name
+                break
+        logger.debug("supervisor routed to %s (raw=%r)", choice, raw[:80])
+        return {"next": choice}
+
+    return supervisor
+
+
+__all__ = ["make_supervisor"]

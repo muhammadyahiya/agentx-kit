@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import typer
@@ -122,12 +123,37 @@ def mcp(
         console.print("\n[dim]Add the JSON under \"mcpServers\" in your client's MCP config "
                       "(e.g. claude_desktop_config.json), then restart the client.[/]")
         return
+    # Preflight: the MCP SDK is an optional extra. Fail with a clear, actionable
+    # message instead of a traceback when it (or any connector dep) is missing.
+    try:
+        import mcp  # noqa: F401
+    except ImportError:
+        console.print(
+            "[red]The MCP connector needs the MCP SDK.[/] Install it with:\n"
+            "    uv pip install 'agentx-kit[connector]'\n"
+            "    # or:  pip install 'agentx-kit[connector]'"
+        )
+        raise typer.Exit(1) from None
+
+    # This is a stdio server driven by an MCP client (Claude/Copilot/Codex) — it
+    # blocks waiting for the client to speak. Note that on stderr so running it
+    # bare in a terminal isn't mistaken for a hang (stdout is the MCP channel).
+    print(
+        "agentx MCP server ready on stdio — waiting for an MCP client. "
+        "This is not a hang; press Ctrl+C to stop. "
+        "Add it to a client with `agentx mcp --print-config`.",
+        file=sys.stderr,
+        flush=True,
+    )
     try:
         from .connector import run
-    except RuntimeError as exc:
+
+        run()  # stdio; no stdout output (the client drives the protocol)
+    except (RuntimeError, ImportError) as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
-    run()  # stdio; no console output (the client drives it)
+    except KeyboardInterrupt:
+        raise typer.Exit(0) from None
 
 
 def _result_panel(result, spec: ProjectSpec) -> None:
@@ -208,6 +234,10 @@ def new(
     memory: str = typer.Option("none", help="none|short|long|both (with --yes)."),
     mcp: bool = typer.Option(False, help="Include MCP tools (with --yes)."),
     skills: bool = typer.Option(False, help="Include skills registry (with --yes)."),
+    subagents: bool = typer.Option(False, help="Attach sub-agents/swarm (with --yes)."),
+    voice: bool = typer.Option(False, help="Add voice I/O — STT + TTS (with --yes)."),
+    streamlit: bool = typer.Option(False, help="Generate a Streamlit UI (with --yes)."),
+    claw: bool = typer.Option(False, help="Add the Claw multi-channel assistant (with --yes)."),
     enterprise: bool = typer.Option(False, "--enterprise", help="Enable the full enterprise pack (tracing, guardrails, FastAPI, Docker, CI, evals)."),
     observability: bool = typer.Option(False, help="OpenTelemetry/Langfuse observability (with --yes)."),
     guardrails: bool = typer.Option(False, help="Input/output guardrails (with --yes)."),
@@ -237,6 +267,7 @@ def new(
             name=name or "my-agent", framework=framework, provider=provider, model=model,
             agents=agent_specs, orchestration=orchestration,
             use_rag=rag, memory=memory, use_mcp=mcp, use_skills=skills,
+            use_subagents=subagents, use_voice=voice, streamlit=streamlit, claw=claw,
             domain=domain, problem_statement=problem,
             prompt_style="custom" if prompt else "default",
             observability=observability, guardrails=guardrails, serve=serve,
@@ -409,7 +440,7 @@ def _find_knowledge_dir(project: Path | None, *, create: bool = False) -> Path:
 
 @rag_app.command("upload")
 def rag_upload(
-    files: list[Path] = typer.Argument(..., help="Files to upload (PDF, Excel, CSV, Word, TXT, MD)."),
+    files: list[Path] = typer.Argument(None, help="Files to upload (PDF, Excel, CSV, Word, TXT, MD). Prompted if omitted."),
     project: Path = typer.Option(None, "--project", "-p", help="Project root (auto-detected from cwd)."),
     rebuild: bool = typer.Option(True, "--rebuild/--no-rebuild", help="Rebuild the vector index after upload."),
     vector_store: str = typer.Option("", "--store", "-s", help="faiss | chroma | memory (reads from agentx.json if blank)."),
@@ -428,12 +459,24 @@ def rag_upload(
         agentx rag upload *.pdf --store faiss --embedding huggingface
 
         agentx rag upload contract.pdf --no-rebuild   # add file only, rebuild later
+
+        agentx rag upload            # prompts for a file path interactively
     """
     import json as _json
     import shutil
 
     from .rag import RAGConfig, build_index_from_directory
     from .rag.embeddings import embedding_config_from_name
+
+    # Interactive fallback: no files passed → prompt for one (or more, space-separated).
+    if not files:
+        console.print("[dim]No files given. Enter a path to a document to add to the knowledge base.[/]")
+        answer = typer.prompt("File path(s) (space-separated, blank to cancel)", default="").strip()
+        if not answer:
+            console.print("[yellow]Nothing to upload.[/] "
+                          "Run `agentx rag upload <file>` or `agentx rag build` to (re)index existing files.")
+            raise typer.Exit(1)
+        files = [Path(p).expanduser() for p in answer.split()]
 
     kdir = _find_knowledge_dir(project, create=True)
     console.print(f"[cyan]Knowledge directory:[/] {kdir}")
@@ -669,6 +712,12 @@ def agent_research(
     else:
         console.print(f"[red]Research failed:[/] {result.error}")
         raise typer.Exit(1)
+
+
+# Top-level aliases for discoverability — `agentx research …` / `agentx run …`
+# mirror the `agentx agent …` subcommands (a common point of confusion).
+app.command("research")(agent_research)
+app.command("run")(agent_run)
 
 
 if __name__ == "__main__":

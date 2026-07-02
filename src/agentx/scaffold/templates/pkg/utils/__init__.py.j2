@@ -1,0 +1,5 @@
+"""Utilities for {{ spec.slug }}: LLM wiring, tool assembly{% if spec.use_rag %}, embeddings, RAG, retriever{% endif %}."""
+from .llm import build_model, get_model
+from .tools import get_tools
+
+__all__ = ["build_model", "get_model", "get_tools"]

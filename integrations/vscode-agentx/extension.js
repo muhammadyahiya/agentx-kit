@@ -51,12 +51,35 @@ async function cmdNew() {
     { placeHolder: "LLM provider" }
   );
   if (!provider) return;
-  const rag = (await vscode.window.showQuickPick(["no", "yes"], { placeHolder: "Add RAG?" })) === "yes";
-  const serve = (await vscode.window.showQuickPick(["no", "yes"], { placeHolder: "FastAPI server?" })) === "yes";
+
+  const agentsStr = await vscode.window.showInputBox({ prompt: "How many agents?", value: "1" });
+  const agents = Math.max(1, parseInt(agentsStr || "1", 10) || 1);
+  let orchestration = "supervisor";
+  if (agents > 1 && framework === "langgraph") {
+    orchestration = await vscode.window.showQuickPick(
+      ["supervisor", "sequential", "parallel"],
+      { placeHolder: "How should the agents connect?" }
+    ) || "supervisor";
+  }
+
+  const yes = (label) => vscode.window.showQuickPick(["no", "yes"], { placeHolder: label }).then((v) => v === "yes");
+  const rag = await yes("Add RAG (knowledge base)?");
+  const subagents = await yes("Attach sub-agents (swarm)?");
+  const voice = await yes("Add voice I/O (speech-to-text + text-to-speech)?");
+  const streamlit = await yes("Generate a Streamlit UI?");
+  const claw = await yes("Add the Claw multi-channel assistant?");
+  const serve = await yes("FastAPI server?");
 
   const cli = agentxCli();
-  const flags = [`--yes`, `--name ${name}`, `--framework ${framework}`, `--provider ${provider}`];
+  const flags = [
+    `--yes`, `--name ${name}`, `--framework ${framework}`, `--provider ${provider}`,
+    `--agents ${agents}`, `--orchestration ${orchestration}`,
+  ];
   if (rag) flags.push("--rag");
+  if (subagents) flags.push("--subagents");
+  if (voice) flags.push("--voice");
+  if (streamlit) flags.push("--streamlit");
+  if (claw) flags.push("--claw");
   if (serve) flags.push("--serve");
   runInTerminal("AgentX", `${cli} new ${flags.join(" ")}`);
 }

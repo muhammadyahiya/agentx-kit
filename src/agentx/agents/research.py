@@ -237,7 +237,15 @@ class ResearchAgent:
             from langgraph.checkpoint.memory import MemorySaver  # type: ignore
             from langchain_core.messages import HumanMessage  # type: ignore
 
-            agent = create_react_agent(llm, tools, prompt=system, checkpointer=MemorySaver())
+            from ..tools import tool_call_coercion_hook
+
+            # Small/local models emit tool calls as JSON text; coerce them so
+            # web_search / fetch_url actually run.
+            agent = create_react_agent(
+                llm, tools, prompt=system,
+                post_model_hook=tool_call_coercion_hook(tools),
+                checkpointer=MemorySaver(),
+            )
 
             logger.info(
                 "ResearchAgent starting: topic=%r depth=%s", cfg.topic[:60], cfg.depth

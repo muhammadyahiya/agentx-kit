@@ -1,0 +1,72 @@
+"""Tool assembly for {{ spec.slug }}.
+
+Tools are plain LangChain tools; agents bind to them and a ToolNode (or the
+ReAct loop) executes any tool calls. Add your own tools in ``get_tools()``.
+
+``get_tools()`` is memoized so importing it from multiple modules does not spawn
+MCP subprocesses or rebuild the RAG index more than once.
+"""
+from __future__ import annotations
+
+from functools import lru_cache
+
+from agentx.tools import make_web_search_tool
+{% if spec.use_rag %}from .retriever import get_knowledge_tool
+{% endif %}
+{% if spec.use_mcp %}from agentx.tools import load_mcp_tools
+
+from ..config import PROJECT_ROOT
+{% endif %}
+{% if use_subagents %}from agentx.swarm import make_subagent_tool
+{% endif %}
+
+
+@lru_cache(maxsize=1)
+def get_tools() -> tuple:
+    """Return the (cached, immutable) tool list available to the agent(s)."""
+    tools = [make_web_search_tool()]
+{% if spec.use_rag %}
+    tools.append(get_knowledge_tool())
+{% endif %}
+{% if spec.use_mcp %}
+    tools.extend(load_mcp_tools(PROJECT_ROOT / "mcp_servers.json"))
+{% endif %}
+{% if use_subagents %}
+    tools.extend(get_subagent_tools())
+{% endif %}
+    return tuple(tools)
+
+{% if use_subagents %}
+
+@lru_cache(maxsize=1)
+def get_subagent_tools() -> tuple:
+    """Sub-agents exposed as tools (the *agent-as-tool* pattern).
+
+    Each sub-agent is a focused ReAct agent with its OWN tools (web search{% if spec.use_rag %},
+    knowledge base{% endif %}); the main agent(s) delegate a task by "calling" it. Add,
+    remove, or re-scope sub-agents here.
+    """
+    researcher = make_subagent_tool(
+        name="web_researcher",
+        description="Delegate open-ended web research. Input a specific research question.",
+        system_prompt=(
+            "You are a meticulous web researcher. Search, read, and synthesise a "
+            "concise, sourced answer to the delegated question."
+        ),
+        tools=[make_web_search_tool()],
+    )
+    subs = [researcher]
+{% if spec.use_rag %}
+    knowledge = make_subagent_tool(
+        name="knowledge_expert",
+        description="Delegate questions answerable from the internal knowledge base.",
+        system_prompt=(
+            "You answer strictly from the knowledge base. If the answer is not "
+            "present, say so. Cite the passages you used."
+        ),
+        tools=[get_knowledge_tool()],
+    )
+    subs.append(knowledge)
+{% endif %}
+    return tuple(subs)
+{% endif %}

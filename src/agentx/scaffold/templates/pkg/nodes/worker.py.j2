@@ -1,0 +1,22 @@
+"""Node: {{ agent.name }} — {{ agent.role }}.
+
+Goal: {{ agent.goal }}
+
+One worker in the {{ orchestration }} multi-agent graph. It is a full ReAct
+sub-agent, so it can call the shared tools. Edit its system prompt in
+``prompts.json`` (or with ``agentx prompt set {{ agent.name }} --text "…"``), or
+customise its construction below.
+"""
+from __future__ import annotations
+
+from ..libs.agent_factory import make_worker
+from ..prompts import resolved_system_prompts
+
+NAME = "{{ agent.name }}"
+
+SYSTEM_PROMPT = resolved_system_prompts().get(NAME, "You are {{ agent.role }}.")
+
+# The graph node callable for this worker.
+node = make_worker(NAME, SYSTEM_PROMPT)
+
+__all__ = ["NAME", "SYSTEM_PROMPT", "node"]

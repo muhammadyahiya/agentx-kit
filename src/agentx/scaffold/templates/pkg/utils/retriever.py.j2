@@ -1,0 +1,18 @@
+"""Retriever tool for {{ spec.slug }}.
+
+Wraps the RAG index (see ``utils/rag.py``) as a LangChain tool the agents can
+call to search the knowledge base.
+"""
+from __future__ import annotations
+
+from agentx.rag import make_retriever_tool
+
+from .rag import get_index
+
+
+def get_knowledge_tool():
+    """Return a LangChain tool that searches the knowledge base."""
+    return make_retriever_tool(get_index())
+
+
+__all__ = ["get_knowledge_tool"]

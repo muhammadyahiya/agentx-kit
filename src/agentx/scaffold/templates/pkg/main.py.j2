@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dotenv import load_dotenv
 
-from .logging_setup import setup_logging
+from .libs.logging_setup import setup_logging
 {% if spec.observability %}from .observability import init_observability
 {% endif %}
 {% if spec.guardrails %}from .guardrails import guard_input, guard_output

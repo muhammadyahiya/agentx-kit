@@ -64,11 +64,27 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 
 ### ✨ Highlights
 - **12 LLM providers** + a curated **model catalog** (used by the wizard & dashboard).
+- **Structured project layout** (new default): generated LangGraph projects are
+  organised into `nodes/` (one module per agent), `state/`, `schemas/`,
+  `prompts/`, `utils/` (`llm.py`, `tools.py`, `rag.py`, `retriever.py`,
+  `embeddings.py`) and `libs/` — a real project you can grow, not one big file.
+- **Multi-agent orchestration**: choose **supervisor** (LLM router), **sequential**
+  (pipeline), or **parallel** (fan-out + merge) when you have 2+ agents.
+- **Sub-agents / swarm** (`--subagents`): attach delegate agents — each with its
+  own tools / MCP / web search — to your agents via the *agent-as-tool* pattern.
+- **Voice I/O** (`--voice`): local-first Speech-to-Text + Text-to-Speech
+  (`faster-whisper` / `edge-tts`, OpenAI cloud fallback) — `agentx.voice`.
+- **Claw** (`--claw`): a multi-channel content assistant (LLM intent router +
+  a generic `/claw/webhook`) you can point WhatsApp / Telegram / Slack / email at.
+- **Streamlit UI** (`--streamlit`): a chat front-end, with mic input & spoken
+  replies when voice is enabled.
+- **Small/local-model resilient**: models that emit tool calls as JSON text
+  (e.g. llama3.2) are handled transparently — no more raw-JSON replies.
 - **RAG that actually chunks + embeds**: LangChain splitter, FAISS **or** Chroma,
   8 embedding providers (HuggingFace local needs no key), document loaders for
   PDF / Excel / CSV / Word / Markdown, and incremental re-index via a manifest.
-- **Autonomous & research agents** (`agentx agent …`) — sandboxed file tools,
-  web search, citations.
+- **Autonomous & research agents** (`agentx agent …`, or `agentx run` / `agentx
+  research`) — sandboxed file tools, web search, citations.
 - **Domain-aware seeding**: name a project `legal-assistant` (or pass `--domain`)
   and it gets an expert system prompt + a seed knowledge base + RAG on.
 - **Dashboard v2**: pick any provider/model, **enter your API key in the UI**,
@@ -338,6 +354,8 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `mcp` | `langchain-mcp-adapters` | MCP tools |
 | `observability` | `opentelemetry-*`, `openinference-*` | tracing |
 | `server` | `fastapi`, `uvicorn` | serving |
+| `voice` | `faster-whisper`, `edge-tts`, `pyttsx3` | Speech-to-Text + Text-to-Speech |
+| `streamlit` | `streamlit` | Streamlit chat/voice UI |
 | `dashboard` | `streamlit`, `tiktoken`, `pandas` | prompt observability dashboard |
 | `connector` | `mcp` | MCP server for Claude/Copilot/Codex |
 | `all` | everything above | kitchen sink |

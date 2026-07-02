@@ -1,23 +1,23 @@
-"""Prompt loading for {{ spec.slug }}.
+"""Prompt registry for {{ spec.slug }}.
 
-Prompts live in `prompts.json` at the project root — the single source of truth
-for which agents exist and their system prompts. Edit that file directly, or use
-the CLI:
+Prompts live in ``prompts.json`` at the project root — the single source of truth
+for which agents exist and their system prompts. Edit that file directly, or use:
 
     agentx prompt list
     agentx prompt set <agent> --text "You are ..."
     agentx prompt add <agent> --role "..." --goal "..." --text "..."
 
-A blank `system_prompt` is auto-derived from the agent's role + goal.
+A blank ``system_prompt`` is auto-derived from the agent's role + goal.
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from agentx.prompts import render_agent_system
 
-PROMPTS_FILE = Path(__file__).resolve().parents[2] / "prompts.json"
+from ..config import PROJECT_ROOT
+
+PROMPTS_FILE = PROJECT_ROOT / "prompts.json"
 
 
 def load_prompts() -> dict:
@@ -27,7 +27,7 @@ def load_prompts() -> dict:
 
 
 def resolved_system_prompts() -> dict[str, str]:
-    """Return {agent_name: system_prompt}, deriving blanks from role/goal."""
+    """Return ``{agent_name: system_prompt}``, deriving blanks from role/goal."""
     data = load_prompts()
     with_rag = bool(data.get("with_rag", False))
     out: dict[str, str] = {}
@@ -41,5 +41,13 @@ def resolved_system_prompts() -> dict[str, str]:
     return out
 
 
+def system_prompt_for(name: str) -> str:
+    """The resolved system prompt for a single agent (empty string if unknown)."""
+    return resolved_system_prompts().get(name, "")
+
+
 def agents_meta() -> dict[str, dict]:
     return load_prompts().get("agents", {})
+
+
+__all__ = ["resolved_system_prompts", "system_prompt_for", "agents_meta", "load_prompts", "PROMPTS_FILE"]

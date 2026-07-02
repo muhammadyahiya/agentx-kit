@@ -146,6 +146,27 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
     memory = _select("Agent memory:", _MEMORY, "none")
     use_mcp = questionary.confirm("Integrate MCP tools?", default=False).ask()
     use_skills = questionary.confirm("Add a skills registry?", default=False).ask()
+
+    # Sub-agents / swarm — attach delegate agents (each with its own tools) to the agent(s).
+    use_subagents = questionary.confirm(
+        "Attach sub-agents (swarm) each agent can delegate tasks to?", default=False
+    ).ask()
+
+    # Voice I/O — speech-to-text + text-to-speech (local-first, keyless).
+    use_voice = questionary.confirm(
+        "Add voice I/O (speech-to-text + text-to-speech)?", default=False
+    ).ask()
+
+    # Streamlit UI — chat (+ voice) front-end.
+    streamlit_ui = questionary.confirm(
+        "Generate a Streamlit UI (chat" + (" + voice" if use_voice else "") + ")?", default=False
+    ).ask()
+
+    # Claw — multi-channel content assistant (intent router + webhook).
+    claw = questionary.confirm(
+        "Add the Claw multi-channel assistant (intent router + /claw webhook)?", default=False
+    ).ask()
+
     custom_prompts = questionary.confirm("Scaffold custom prompt templates (vs defaults)?", default=False).ask()
 
     # Enterprise pack — bundle or pick individually
@@ -182,6 +203,10 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         memory=memory or "none",
         use_mcp=bool(use_mcp),
         use_skills=bool(use_skills),
+        use_subagents=bool(use_subagents),
+        use_voice=bool(use_voice),
+        streamlit=bool(streamlit_ui),
+        claw=bool(claw),
         prompt_style="custom" if custom_prompts else "default",
         observability=bool(observability),
         guardrails=bool(guardrails),

@@ -1,0 +1,19 @@
+"""Node: {{ agent.name if agent else "assistant" }} — the single agent for {{ spec.slug }}.
+
+Edit this file to customise the agent's behaviour. The system prompt is loaded
+from ``prompts.json`` (edit there, or with ``agentx prompt set``).
+"""
+from __future__ import annotations
+
+from ..libs.agent_factory import make_call_model
+from ..prompts import resolved_system_prompts
+
+NAME = "{{ agent.name if agent else "assistant" }}"
+
+_prompts = resolved_system_prompts()
+SYSTEM_PROMPT = _prompts.get(NAME) or next(iter(_prompts.values()), "You are a helpful assistant.")
+
+# The graph node callable (LLM turn; the graph wires it to a ToolNode).
+call_model = make_call_model(SYSTEM_PROMPT)
+
+__all__ = ["NAME", "SYSTEM_PROMPT", "call_model"]
