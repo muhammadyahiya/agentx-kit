@@ -202,14 +202,48 @@ def _conditional_files(spec: ProjectSpec) -> list[tuple[str, str]]:
     return plan
 
 
+def _class_name(name: str) -> str:
+    """PascalCase a snake_case agent name for schema class names."""
+    return "".join(part.capitalize() for part in name.split("_") if part) or "Agent"
+
+
+def _render_per_agent(env, ctx: dict, spec: ProjectSpec, staging: Path) -> list[Path]:
+    """Render the per-agent ``prompts/<name>.py`` and ``schemas/<name>.py`` files.
+
+    Every agent gets a prompt module (role/goal/guidelines → system prompt) and a
+    schema module (typed Pydantic I/O), for both single- and multi-agent projects.
+    """
+    written: list[Path] = []
+    pkg = staging / "src" / spec.package
+    prompt_tmpl = env.get_template("pkg/prompts/agent_prompt.py.j2")
+    schema_tmpl = env.get_template("pkg/schemas/agent_schema.py.j2")
+
+    seen: set[str] = set()
+    for agent in spec.agents:
+        if agent.name in seen:
+            continue
+        seen.add(agent.name)
+        a_ctx = {**ctx, "agent": agent, "class_name": _class_name(agent.name)}
+        for folder, tmpl in (("prompts", prompt_tmpl), ("schemas", schema_tmpl)):
+            out = pkg / folder / f"{agent.name}.py"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(tmpl.render(**a_ctx), encoding="utf-8")
+            written.append(out)
+    return written
+
+
 def _render_nodes(env, ctx: dict, spec: ProjectSpec, staging: Path) -> list[Path]:
     """Render per-agent node modules for a LangGraph project.
 
     Single-agent  → nodes/agent.py
     Multi-agent   → nodes/<agent_name>.py for each agent (+ nodes/supervisor.py
                     when orchestration == 'supervisor').
+
+    Also renders the per-agent prompt + schema modules (see
+    :func:`_render_per_agent`) so ``prompts/`` and ``schemas/`` contain a file
+    per node, not just the shared registry/models.
     """
-    written: list[Path] = []
+    written: list[Path] = _render_per_agent(env, ctx, spec, staging)
     pkg_nodes = staging / "src" / spec.package / "nodes"
     pkg_nodes.mkdir(parents=True, exist_ok=True)
 
@@ -325,9 +359,13 @@ def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool 
 
         # LangGraph: render one node module per agent (nodes/<name>.py), plus a
         # supervisor router when in supervisor mode. This gives users the
-        # per-agent file layout (node1.py, node2.py …) they can edit directly.
+        # per-agent file layout (node1.py, node2.py …) they can edit directly,
+        # along with per-agent prompt + schema modules.
         if spec.framework == "langgraph":
             staged_written += _render_nodes(env, ctx, spec, staging)
+        else:
+            # CrewAI has no nodes/ but still gets per-agent prompt + schema files.
+            staged_written += _render_per_agent(env, ctx, spec, staging)
 
         # Seed knowledge/ when needed.
         if spec.use_rag or spec.use_mcp:

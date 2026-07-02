@@ -136,6 +136,24 @@ def test_generate_voice_subagents_claw_streamlit(tmp_path):
     assert feats["voice"] and feats["subagents"] and feats["claw"] and feats["streamlit"]
 
 
+def test_nodes_build_lazily_not_at_import(tmp_path):
+    """Regression: worker/sub-agent construction must be lazy so `import graph`
+    never builds models or fails on a missing provider dep."""
+    s = _spec(
+        name="lazy-bot", framework="langgraph",
+        agents=[AgentSpec(name="alpha"), AgentSpec(name="beta")],
+        orchestration="supervisor", use_subagents=True,
+    )
+    root = generate_project(s, tmp_path / "lazy", overwrite=True).target_dir
+    factory = (root / "src/lazy_bot/libs/agent_factory.py").read_text()
+    # The model/tools are resolved inside a nested lazy helper, not eagerly.
+    assert "def _agent(" in factory
+    # A worker module must not call get_tools()/make_worker eagerly build a model:
+    worker = (root / "src/lazy_bot/nodes/alpha.py").read_text()
+    assert "make_worker(" in worker  # node is declared, but the agent builds on first call
+    _compile_tree(root)
+
+
 def test_extras_include_voice_and_streamlit():
     s = _spec(use_voice=True, streamlit=True, claw=True)
     extras = _extras(s)

@@ -1,0 +1,27 @@
+"""Typed I/O schemas for the ``{{ agent.name }}`` agent — {{ agent.role }}.
+
+These Pydantic models document the agent's contract and enable structured
+output. To make the agent return {{ class_name }}Output directly, bind the schema
+in the node, e.g. ``model.with_structured_output({{ class_name }}Output)``.
+"""
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class {{ class_name }}Input(BaseModel):
+    """Input routed to the ``{{ agent.name }}`` agent."""
+
+    message: str = Field(..., min_length=1, description="The user request for {{ agent.name }}.")
+
+
+class {{ class_name }}Output(BaseModel):
+    """Structured result produced by the ``{{ agent.name }}`` agent."""
+
+    response: str = Field(..., description="{{ agent.name }}'s answer to the user.")
+    confidence: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Self-reported confidence in the answer."
+    )
+
+
+__all__ = ["{{ class_name }}Input", "{{ class_name }}Output"]
