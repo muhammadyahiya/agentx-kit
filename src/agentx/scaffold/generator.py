@@ -26,6 +26,7 @@ _COMMON_FILES: list[tuple[str, str]] = [
     ("gitignore.j2", ".gitignore"),
     ("pkg/__init__.py.j2", "src/{pkg}/__init__.py"),
     ("pkg/config.py.j2", "src/{pkg}/config.py"),
+    ("pkg/logging_setup.py.j2", "src/{pkg}/logging_setup.py"),
     ("pkg/prompts.py.j2", "src/{pkg}/prompts.py"),
     ("pkg/main.py.j2", "src/{pkg}/main.py"),
 ]

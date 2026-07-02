@@ -26,7 +26,7 @@ def _now() -> str:
 @dataclass
 class InsightEvent:
     ts: str = field(default_factory=_now)
-    kind: str = "run"                  # run | edit | optimize
+    kind: str = "run"                  # run | edit | optimize | eval
     model: str = ""
     prompt_hash: str = ""
     tokens_in: int = 0
@@ -34,6 +34,11 @@ class InsightEvent:
     cost_usd: float = 0.0
     latency_ms: int = 0
     note: str = ""
+    # Optional interaction history (truncated). Defaults keep older JSONL lines valid.
+    prompt_text: str = ""
+    user_msg: str = ""
+    response: str = ""
+    eval_score: float = 0.0            # 0-1 relevance when a judge ran, else 0
 
 
 class InsightLog:

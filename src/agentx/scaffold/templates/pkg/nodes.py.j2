@@ -35,6 +35,18 @@ def _skills_suffix() -> str:
     return ("\nApply these skills:\n" + skills) if skills else ""
 {% endif %}
 
+def _looks_like_tool_call(content: str) -> bool:
+    """True if ``content`` appears to be a JSON tool-call object (has a "name" key)."""
+    s = (content or "").strip()
+    if not (s.startswith("{") and s.endswith("}")):
+        return False
+    try:
+        data = json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return isinstance(data, dict) and "name" in data
+
+
 async def _exec_json_tool_call(content: str) -> str | None:
     """Fallback for models (e.g. llama3.2/Ollama) that emit tool calls as JSON
     text instead of populating the structured ``tool_calls`` field.
@@ -109,7 +121,8 @@ async def call_model(state) -> dict:
 
     # Fallback: detect JSON tool calls emitted as plain text (llama3.2 style).
     if _TOOLS and response.content:
-        tool_result = await _exec_json_tool_call(str(response.content))
+        content_str = str(response.content)
+        tool_result = await _exec_json_tool_call(content_str)
         if tool_result is not None:
             logger.debug("json_tool_call executed; re-invoking with result")
             augmented = messages + [
@@ -123,6 +136,19 @@ async def call_model(state) -> dict:
                 response = await _model(bind_tools=False).ainvoke(augmented)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("re-invoke after tool result failed: %s", exc)
+        elif _looks_like_tool_call(content_str):
+            # Model hallucinated a tool call that resolves to no real tool. Don't
+            # leak raw JSON to the user — re-prompt for a natural-language answer.
+            logger.debug("content looks like an unresolved tool call; re-prompting for prose")
+            try:
+                response = await _model(bind_tools=False).ainvoke(
+                    messages + [{"role": "user", "content": (
+                        "Answer the previous question directly in plain language. "
+                        "Do NOT output JSON or a tool call."
+                    )}]
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("re-prompt for prose failed: %s", exc)
 
     return {"messages": [response]}
 {% else %}

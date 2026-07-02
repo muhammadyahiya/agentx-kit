@@ -25,12 +25,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-load_dotenv()
+from .logging_setup import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+load_dotenv()
+setup_logging()   # app at INFO, noisy third-party libs at WARNING
 logger = logging.getLogger(__name__)
 {% if spec.observability %}
 from .observability import init_observability
@@ -48,11 +46,13 @@ import asyncio
 
 from .crew import run_text as _crew_run_text
 
-async def arun_text(message: str, thread_id: str = "default") -> str:  # type: ignore[misc]
+async def arun_text(message: str, thread_id: str = "default", *, raise_errors: bool = False) -> str:  # type: ignore[misc]
+    # CrewAI's run_text propagates exceptions; asyncio.to_thread re-raises them,
+    # so the /chat handler's try/except turns a failure into an HTTP 500.
     return await asyncio.to_thread(_crew_run_text, message, thread_id)
 
-async def stream_text(message: str, thread_id: str = "default"):  # type: ignore[misc]
-    reply = await arun_text(message, thread_id)
+async def stream_text(message: str, thread_id: str = "default", *, raise_errors: bool = False):  # type: ignore[misc]
+    reply = await arun_text(message, thread_id, raise_errors=raise_errors)
 {% if spec.guardrails %}
     reply = guard_output(reply).text
 {% endif %}
@@ -152,33 +152,64 @@ async def livez() -> dict:
     return {"status": "ok"}
 
 
+async def _ping_provider() -> tuple[bool, str]:
+    """Best-effort 1-token call to confirm the LLM provider is reachable.
+
+    Returns ``(ok, detail)``. Kept cheap (max_tokens=1) and never raises.
+    """
+    try:
+        from agentx import get_chat_model
+        from langchain_core.messages import HumanMessage
+        from .config import MODEL, PROVIDER
+
+        llm = get_chat_model(PROVIDER, MODEL, max_tokens=1)
+        await llm.ainvoke([HumanMessage("ping")])
+        return True, f"{PROVIDER}/{MODEL} reachable"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"provider unreachable: {exc}"
+
+
 @app.get("/readyz", tags=["system"])
-async def readyz() -> JSONResponse:
-    """Readiness probe — checks that the LLM chain is initialised."""
-    ready = graph is not None
+async def readyz(deep: bool = Query(default=False, description="Also ping the LLM provider.")) -> JSONResponse:
+    """Readiness probe. ``?deep=true`` additionally pings the LLM provider.
+
+    Kubernetes readiness: use the default (fast) check for frequent probes and
+    ``?deep=true`` sparingly, since it makes a real (tiny) model call.
+    """
 {% if spec.framework == 'crewai' %}
-    # CrewAI has no graph checkpointer; readiness is based on module import.
-    ready = True
+    ready = True   # crew module import already succeeded
+{% else %}
+    ready = graph is not None
 {% endif %}
+    if ready and deep:
+        ready, _ = await _ping_provider()
     code = 200 if ready else 503
     return JSONResponse(status_code=code, content={"status": "ready" if ready else "not_ready"})
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
-async def health() -> HealthResponse:
-    """Deep health check — verifies core components."""
+async def health(deep: bool = Query(default=False, description="Also ping the LLM provider.")) -> HealthResponse:
+    """Deep health check. ``?deep=true`` verifies LLM provider reachability."""
     components: list[HealthComponent] = []
 
     # Component: graph / crew initialisation
-    graph_ok = graph is not None
 {% if spec.framework == 'crewai' %}
     graph_ok = True   # crew module import already succeeded
+{% else %}
+    graph_ok = graph is not None
 {% endif %}
     components.append(HealthComponent(
         name="graph",
         status="ok" if graph_ok else "error",
         detail="compiled" if graph_ok else "not initialised",
     ))
+
+    # Component: LLM provider (only probed when deep=true — it's a real call).
+    if deep:
+        ok, detail = await _ping_provider()
+        components.append(HealthComponent(
+            name="llm_provider", status="ok" if ok else "error", detail=detail,
+        ))
 
     overall = "ok" if all(c.status == "ok" for c in components) else "degraded"
     return HealthResponse(
@@ -203,7 +234,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 {% endif %}
     try:
-        reply = await arun_text(message, thread_id=session_id)
+        reply = await arun_text(message, thread_id=session_id, raise_errors=True)
     except Exception as exc:
         logger.exception("chat invocation failed")
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
@@ -229,12 +260,13 @@ async def chat_stream(
 
     async def _events():
         try:
-            async for token in stream_text(message, thread_id=sid):
+            async for token in stream_text(message, thread_id=sid, raise_errors=True):
                 if token:
                     yield f"data: {json.dumps({'token': token, 'session_id': sid})}\n\n"
         except Exception as exc:
             logger.exception("stream_text failed")
-            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            # Structured error event (not a normal token) so clients can distinguish it.
+            yield f"data: {json.dumps({'error': str(exc), 'session_id': sid})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
@@ -291,9 +323,21 @@ async def delete_session(
     if checkpointer is None:
         raise HTTPException(status_code=501, detail="Graph has no checkpointer configured.")
     try:
-        # MemorySaver stores per-thread state internally; overwrite with empty.
-        await graph.aupdate_state(config=_config(session_id), values={"messages": []})
-    except Exception as exc:
+        # NOTE: aupdate_state({"messages": []}) does NOT clear history — the
+        # messages channel uses the add_messages reducer, which appends, so an
+        # empty list is a no-op. Delete the whole thread instead.
+        if hasattr(checkpointer, "adelete_thread"):
+            await checkpointer.adelete_thread(session_id)
+        elif hasattr(checkpointer, "delete_thread"):
+            checkpointer.delete_thread(session_id)
+        else:
+            raise HTTPException(
+                status_code=501,
+                detail="Checkpointer does not support deleting a thread.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logger.exception("delete_session failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 {% endif %}
