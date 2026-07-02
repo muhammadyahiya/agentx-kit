@@ -1,8 +1,8 @@
 {
   "name": "agentx-kit",
   "displayName": "AgentX Kit",
-  "description": "Scaffold, visualize, and run AgentX agentic projects (LangGraph / CrewAI) from VS Code.",
-  "version": "0.1.0",
+  "description": "Scaffold, visualize, and run AgentX agentic projects (LangGraph / CrewAI) from VS Code — multi-agent orchestration, sub-agents, voice, and the Claw assistant.",
+  "version": "0.2.0",
   "publisher": "optimumai",
   "license": "MIT",
   "repository": {
