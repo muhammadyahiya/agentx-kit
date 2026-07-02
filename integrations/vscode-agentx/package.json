@@ -1,10 +1,14 @@
 {
-  "name": "agentx",
-  "displayName": "AgentX",
+  "name": "agentx-kit",
+  "displayName": "AgentX Kit",
   "description": "Scaffold, visualize, and run AgentX agentic projects (LangGraph / CrewAI) from VS Code.",
   "version": "0.1.0",
   "publisher": "optimumai",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammadyahiya/agentx-kit"
+  },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other", "Machine Learning"],
   "keywords": ["agents", "langgraph", "crewai", "llm", "rag", "agentx"],

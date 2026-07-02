@@ -101,6 +101,15 @@ Issues = "https://github.com/muhammadyahiya/agentx-kit/issues"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+exclude = [
+    ".venv",
+    ".venv-dev",
+    "dist",
+    "__pycache__",
+    "*.pyc",
+]
+
 [tool.hatch.build.targets.wheel]
 # Templates (*.j2) live inside the package dir and are included automatically.
 packages = ["src/agentx"]
