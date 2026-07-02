@@ -154,6 +154,20 @@ def test_nodes_build_lazily_not_at_import(tmp_path):
     _compile_tree(root)
 
 
+def test_stream_text_filters_non_ai_messages(tmp_path):
+    """Regression: SSE streaming must only emit AI tokens, never tool messages
+    (so tool errors like 'Access denied' don't leak to users)."""
+    s = _spec(
+        name="stream-bot", framework="langgraph",
+        agents=[AgentSpec(name="alpha"), AgentSpec(name="beta")],
+        orchestration="supervisor", use_mcp=True,
+    )
+    root = generate_project(s, tmp_path / "stream", overwrite=True).target_dir
+    graph = (root / "src/stream_bot/graph.py").read_text()
+    assert "AIMessageChunk" in graph
+    assert "isinstance(chunk, (AIMessage, AIMessageChunk))" in graph
+
+
 def test_extras_include_voice_and_streamlit():
     s = _spec(use_voice=True, streamlit=True, claw=True)
     extras = _extras(s)

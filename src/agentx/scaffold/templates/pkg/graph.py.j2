@@ -149,7 +149,14 @@ def run_text(message: str, thread_id: str = "default") -> str:
 
 
 async def stream_text(message: str, thread_id: str = "default", *, raise_errors: bool = False):
-    """Yield reply tokens as the model produces them."""
+    """Yield reply tokens as the model produces them.
+
+    Only assistant (AI) tokens are streamed — tool call/result messages and the
+    supervisor's routing tokens are filtered out so internal tool chatter (e.g.
+    file-access errors) never leaks into the user-facing stream.
+    """
+    from langchain_core.messages import AIMessage, AIMessageChunk
+
     try:
         async for _ns, (chunk, meta) in graph.astream(
             {"messages": [{"role": "user", "content": message}]},
@@ -161,9 +168,17 @@ async def stream_text(message: str, thread_id: str = "default", *, raise_errors:
             if meta.get("langgraph_node") == "supervisor":
                 continue
 {% endif %}
-            text = getattr(chunk, "content", "")
-            if text:
-                yield text
+            # Only stream assistant tokens (skip ToolMessage / HumanMessage etc.).
+            if not isinstance(chunk, (AIMessage, AIMessageChunk)):
+                continue
+            content = getattr(chunk, "content", "")
+            # Some providers emit content as a list of blocks; normalise to text.
+            if isinstance(content, list):
+                content = "".join(
+                    b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+                )
+            if content:
+                yield content
     except Exception as exc:  # noqa: BLE001
         logger.exception("graph streaming failed")
         if raise_errors:

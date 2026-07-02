@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import re
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,39 @@ from .autonomous import _run_sync
 logger = logging.getLogger(__name__)
 
 ResearchDepth = Literal["quick", "standard", "deep"]
+
+_URL_RE = re.compile(r"https?://[^\s\)\]\}>\"']+")
+
+
+def _extract_urls(text: str) -> list[str]:
+    """Return unique URLs found in ``text``, in order of first appearance."""
+    seen: list[str] = []
+    for url in _URL_RE.findall(text or ""):
+        url = url.rstrip(".,;")
+        if url not in seen:
+            seen.append(url)
+    return seen
+
+
+def _parse_lines(text: str) -> list[str]:
+    """Parse an LLM list reply (newline- or JSON-array-formatted) into strings."""
+    text = (text or "").strip()
+    # Try a JSON array first.
+    if text.startswith("["):
+        import json as _json
+
+        try:
+            data = _json.loads(text)
+            if isinstance(data, list):
+                return [str(x).strip() for x in data if str(x).strip()]
+        except (ValueError, TypeError):
+            pass
+    lines: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("-*0123456789.)( ").strip()
+        if line:
+            lines.append(line)
+    return lines
 
 _DEPTH_PARAMS: dict[ResearchDepth, dict] = {
     "quick":    {"max_queries": 3,  "max_urls": 2,  "max_iterations": 15},
@@ -210,7 +244,13 @@ class ResearchAgent:
         return _run_sync(self.arun())
 
     async def arun(self) -> ResearchResult:
-        """Async run — use from an async context."""
+        """Async run — use from an async context.
+
+        Uses a deterministic **plan → search → (fetch) → synthesise** pipeline
+        rather than relying on the model to emit perfect tool calls. This is
+        robust across providers, including small/local models (llama3.2) that
+        otherwise hallucinate tool names and never actually search.
+        """
         from ..providers import get_chat_model
 
         cfg = self.config
@@ -224,68 +264,38 @@ class ResearchAgent:
             if result.violations:
                 logger.info("Input guards applied to topic: %s", result.violations)
 
-        llm = get_chat_model(cfg.provider, cfg.model or None, temperature=cfg.temperature)
-        tools, citations = _make_research_tools(cfg)
-
-        system = _RESEARCH_SYSTEM.format(
-            topic=topic,
-            format=cfg.report_format,
-        )
-
         try:
-            from langgraph.prebuilt import create_react_agent  # type: ignore
-            from langgraph.checkpoint.memory import MemorySaver  # type: ignore
-            from langchain_core.messages import HumanMessage  # type: ignore
+            llm = get_chat_model(cfg.provider, cfg.model or None, temperature=cfg.temperature)
+            logger.info("ResearchAgent starting: topic=%r depth=%s", topic[:60], cfg.depth)
 
-            from ..tools import tool_call_coercion_hook
+            # 1. PLAN — decompose the topic into targeted sub-questions.
+            subquestions = await self._plan(llm, topic, params["max_queries"])
 
-            # Small/local models emit tool calls as JSON text; coerce them so
-            # web_search / fetch_url actually run.
-            agent = create_react_agent(
-                llm, tools, prompt=system,
-                post_model_hook=tool_call_coercion_hook(tools),
-                checkpointer=MemorySaver(),
-            )
+            # 2. SEARCH — run each sub-question through web search (direct calls).
+            from ..tools.builtin import web_search
 
-            logger.info(
-                "ResearchAgent starting: topic=%r depth=%s", cfg.topic[:60], cfg.depth
-            )
+            findings: list[tuple[str, str]] = []
+            citations: list[str] = []
+            for question in subquestions[: params["max_queries"]]:
+                snippet = web_search(question, max_results=4)
+                findings.append((question, snippet))
+                for url in _extract_urls(snippet):
+                    if url not in citations:
+                        citations.append(url)
+            queries_run = len(findings)
 
-            result = await agent.ainvoke(
-                {"messages": [HumanMessage(content=f"Research this topic thoroughly: {topic}")]},
-                config={
-                    "configurable": {"thread_id": "research"},
-                    "recursion_limit": params["max_iterations"] * 2,
-                },
-            )
+            # 3. FETCH — read the most promising sources for deeper detail.
+            urls_visited = 0
+            if params["max_urls"] and citations:
+                from ..tools.builtin import fetch_url
 
-            messages = result.get("messages", [])
-            final_content = ""
-            for m in reversed(messages):
-                c = getattr(m, "content", "")
-                if c and isinstance(c, str) and len(c) > 100:
-                    final_content = c
-                    break
+                for url in citations[: params["max_urls"]]:
+                    page = fetch_url(url, max_chars=6000)
+                    findings.append((f"[source] {url}", page))
+                    urls_visited += 1
 
-            # Extract the report section
-            report_md = final_content
-            if "## RESEARCH REPORT:" in final_content:
-                report_md = final_content.split("## RESEARCH REPORT:", 1)[1].strip()
-
-            # Append citations if not already in the report
-            if cfg.include_citations and citations and "## References" not in report_md:
-                refs = "\n".join(f"{i+1}. {url}" for i, url in enumerate(citations))
-                report_md += f"\n\n## References\n{refs}"
-
-            tool_calls = sum(1 for m in messages if getattr(m, "type", "") == "tool")
-            queries_run = sum(
-                1 for m in messages
-                if getattr(m, "type", "") == "tool" and getattr(m, "name", "") == "web_search"
-            )
-            urls_visited = sum(
-                1 for m in messages
-                if getattr(m, "type", "") == "tool" and getattr(m, "name", "") == "fetch_url"
-            )
+            # 4. SYNTHESISE — write the report grounded in the gathered material.
+            report_md = await self._synthesise(llm, topic, findings, citations)
 
             research_result = ResearchResult(
                 topic=cfg.topic,
@@ -295,10 +305,8 @@ class ResearchAgent:
                 urls_visited=urls_visited,
                 success=True,
             )
-
             if cfg.output_file:
                 research_result.save(cfg.output_file)
-
             logger.info(
                 "ResearchAgent done: queries=%d urls=%d citations=%d",
                 queries_run, urls_visited, len(citations),
@@ -316,3 +324,46 @@ class ResearchAgent:
                 success=False,
                 error=str(exc),
             )
+
+    async def _plan(self, llm, topic: str, max_q: int) -> list[str]:
+        """Decompose ``topic`` into up to ``max_q`` specific sub-questions.
+
+        Parses newline- or JSON-formatted output leniently; always returns at
+        least the original topic so the pipeline can proceed.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        prompt = (
+            f"Break the research topic into {max_q} specific, non-overlapping "
+            "sub-questions that together cover it well. Reply with ONE "
+            "sub-question per line, no numbering, no preamble."
+        )
+        try:
+            resp = await llm.ainvoke([SystemMessage(prompt), HumanMessage(f"TOPIC: {topic}")])
+            questions = _parse_lines(str(resp.content or ""))
+        except Exception:  # noqa: BLE001
+            logger.warning("planning step failed; searching the topic directly", exc_info=True)
+            questions = []
+        questions = [q for q in questions if len(q) > 3][:max_q]
+        return questions or [topic]
+
+    async def _synthesise(self, llm, topic: str, findings: list[tuple[str, str]], citations: list[str]) -> str:
+        """Write the final report from the gathered findings, with references."""
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        context = "\n\n".join(f"### {q}\n{text}" for q, text in findings)[:12000]
+        system = _RESEARCH_SYSTEM.format(topic=topic, format=self.config.report_format)
+        instruction = (
+            "Using ONLY the research material below, write a comprehensive, "
+            f"well-structured {self.config.report_format} report answering the topic. "
+            "Cite sources inline as [1], [2] matching the reference order. Do NOT "
+            "invent facts or sources.\n\nRESEARCH MATERIAL:\n" + context
+        )
+        resp = await llm.ainvoke([SystemMessage(system), HumanMessage(instruction)])
+        report = str(resp.content or "").strip()
+        if "## RESEARCH REPORT:" in report:
+            report = report.split("## RESEARCH REPORT:", 1)[1].strip()
+        if self.config.include_citations and citations and "## References" not in report:
+            refs = "\n".join(f"{i + 1}. {url}" for i, url in enumerate(citations))
+            report += f"\n\n## References\n{refs}"
+        return report
