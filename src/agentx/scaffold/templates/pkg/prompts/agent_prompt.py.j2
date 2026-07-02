@@ -1,0 +1,44 @@
+"""Prompt for the ``{{ agent.name }}`` agent — {{ agent.role }}.
+
+Edit this module to tune the agent's behaviour in code, or override at runtime
+via ``prompts.json`` (``agentx prompt set {{ agent.name }} --text "…"``). The
+node uses the ``prompts.json`` value when present, otherwise ``SYSTEM_PROMPT``
+defined here.
+"""
+from __future__ import annotations
+
+#: The agent's role — who it is.
+ROLE = "{{ agent.role }}"
+
+#: The agent's goal — what it is trying to achieve.
+GOAL = "{{ agent.goal }}"
+
+#: Behavioural guidelines injected into the system prompt.
+GUIDELINES: list[str] = [
+    "Be precise, concise, and grounded in the provided context and tools.",
+    "If you are unsure or lack information, say so — never invent facts.",
+    "Prefer calling your tools over guessing.",
+    "Keep responses focused on the user's actual request.",
+]
+{% if agent.system_prompt %}
+#: Explicit system prompt configured at generation time.
+SYSTEM_PROMPT = """{{ agent.system_prompt }}"""
+{% else %}
+#: System prompt, composed from role + goal + guidelines.
+SYSTEM_PROMPT = (
+    f"You are {ROLE}.\n"
+    f"Your goal: {GOAL}\n"
+    "Guidelines:\n" + "\n".join(f"- {g}" for g in GUIDELINES)
+)
+{% endif %}
+
+#: Template applied to each incoming user message before the model sees it.
+USER_PROMPT_TEMPLATE = "{user_input}"
+
+
+def render_user_prompt(user_input: str) -> str:
+    """Render the user-facing prompt for this agent from ``user_input``."""
+    return USER_PROMPT_TEMPLATE.format(user_input=user_input)
+
+
+__all__ = ["ROLE", "GOAL", "GUIDELINES", "SYSTEM_PROMPT", "USER_PROMPT_TEMPLATE", "render_user_prompt"]

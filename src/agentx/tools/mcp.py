@@ -51,14 +51,17 @@ def load_mcp_tools(config: str | Path | dict | None) -> list[Any]:
         return await client.get_tools()
 
     try:
-        return asyncio.run(_gather())
-    except RuntimeError:
-        # Already inside an event loop (e.g. notebook) — run in a fresh loop.
-        loop = asyncio.new_event_loop()
+        # If a loop is already running in this thread (e.g. lazy tool assembly
+        # inside an async graph node, a notebook, or FastAPI), we cannot call
+        # asyncio.run / run_until_complete here — offload to a worker thread.
         try:
-            return loop.run_until_complete(_gather())
-        finally:
-            loop.close()
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_gather())
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(_gather())).result()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to load MCP tools: %s", exc)
         return []

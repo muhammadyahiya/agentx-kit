@@ -1,22 +1,25 @@
-"""Node: {{ agent.name }} — {{ agent.role }}.
+"""Node: ``{{ agent.name }}`` — {{ agent.role }}.
 
 Goal: {{ agent.goal }}
 
 One worker in the {{ orchestration }} multi-agent graph. It is a full ReAct
-sub-agent, so it can call the shared tools. Edit its system prompt in
-``prompts.json`` (or with ``agentx prompt set {{ agent.name }} --text "…"``), or
-customise its construction below.
+sub-agent (built lazily on first call), so it can call the shared tools. Its
+prompt lives in ``prompts/{{ agent.name }}.py`` (or ``prompts.json`` at runtime);
+its typed I/O contract in ``schemas/{{ agent.name }}.py``.
 """
 from __future__ import annotations
 
 from ..libs.agent_factory import make_worker
 from ..prompts import resolved_system_prompts
+from ..prompts.{{ agent.name }} import SYSTEM_PROMPT as _DEFAULT_SYSTEM_PROMPT
 
+#: Agent name (used to tag output and for supervisor routing).
 NAME = "{{ agent.name }}"
 
-SYSTEM_PROMPT = resolved_system_prompts().get(NAME, "You are {{ agent.role }}.")
+#: Runtime prompt: prompts.json override if set, else the module default.
+SYSTEM_PROMPT = resolved_system_prompts().get(NAME) or _DEFAULT_SYSTEM_PROMPT
 
-# The graph node callable for this worker.
+#: The LangGraph node callable for this worker.
 node = make_worker(NAME, SYSTEM_PROMPT)
 
 __all__ = ["NAME", "SYSTEM_PROMPT", "node"]

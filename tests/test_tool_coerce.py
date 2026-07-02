@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from agentx.tools import coerce_message, parse_json_tool_call, tool_call_coercion_hook
+from agentx.tools import coerce_message, load_mcp_tools, parse_json_tool_call, tool_call_coercion_hook
 
 
 def test_parse_plain_json_call():
@@ -75,3 +75,18 @@ def test_hook_noop_on_prose():
     hook = tool_call_coercion_hook([type("T", (), {"name": "web_search"})()])
     assert hook({"messages": [AIMessage(content="normal reply")]}) == {}
     assert hook({"messages": []}) == {}
+
+
+def test_load_mcp_tools_safe_inside_running_loop():
+    """Regression: load_mcp_tools must not raise when called from within a
+    running event loop (lazy tool assembly inside an async graph node)."""
+    import asyncio
+
+    from agentx.tools import load_mcp_tools
+
+    async def _inside_loop():
+        # Empty config → returns [] fast, but must not raise a loop error even
+        # though it is invoked from within a running loop.
+        return load_mcp_tools({})
+
+    assert asyncio.run(_inside_loop()) == []

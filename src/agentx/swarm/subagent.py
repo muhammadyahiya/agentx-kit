@@ -77,27 +77,36 @@ def make_subagent_tool(
         A ``StructuredTool`` with both sync and async implementations.
     """
     from langchain_core.tools import StructuredTool
-    from langgraph.prebuilt import create_react_agent
-
-    from ..providers import get_chat_model
-    from ..tools import tool_call_coercion_hook
 
     sub_tools = list(tools or [])
     kwargs: dict = {}
     if temperature is not None:
         kwargs["temperature"] = temperature
-    llm = get_chat_model(provider, model, **kwargs)
 
-    agent = create_react_agent(
-        llm,
-        sub_tools,
-        prompt=system_prompt or f"You are {name}, a focused sub-agent. Complete the delegated task.",
-        post_model_hook=tool_call_coercion_hook(sub_tools),
-    )
+    # Build the ReAct agent lazily on first delegation (never at import/build
+    # time) so assembling a tool list can't spawn models, MCP sessions, or fail
+    # on a missing provider dependency / API key.
+    _cache: dict[str, object] = {}
+
+    def _agent():
+        if "agent" not in _cache:
+            from langgraph.prebuilt import create_react_agent
+
+            from ..providers import get_chat_model
+            from ..tools import tool_call_coercion_hook
+
+            llm = get_chat_model(provider, model, **kwargs)
+            _cache["agent"] = create_react_agent(
+                llm,
+                sub_tools,
+                prompt=system_prompt or f"You are {name}, a focused sub-agent. Complete the delegated task.",
+                post_model_hook=tool_call_coercion_hook(sub_tools),
+            )
+        return _cache["agent"]
 
     async def _arun(task: str) -> str:
         try:
-            result = await agent.ainvoke(
+            result = await _agent().ainvoke(
                 {"messages": [{"role": "user", "content": task}]},
                 config={"recursion_limit": recursion_limit},
             )
@@ -109,7 +118,23 @@ def make_subagent_tool(
     _loop: list[asyncio.AbstractEventLoop | None] = [None]
 
     def _run(task: str) -> str:
-        # Reuse one loop across calls so stateful async tools (MCP) survive.
+        # If we're already inside a running event loop (e.g. the tool is being
+        # executed synchronously by a parent agent's ToolNode during an async
+        # graph run), we cannot call run_until_complete on it — run the coroutine
+        # in a dedicated worker thread with its own loop instead.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            running = False
+        else:
+            running = True
+        if running:
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(lambda: asyncio.run(_arun(task))).result()
+        # No running loop — reuse one private loop across calls so stateful async
+        # tools (MCP) survive multiple delegations.
         if _loop[0] is None or _loop[0].is_closed():
             _loop[0] = asyncio.new_event_loop()
         return _loop[0].run_until_complete(_arun(task))

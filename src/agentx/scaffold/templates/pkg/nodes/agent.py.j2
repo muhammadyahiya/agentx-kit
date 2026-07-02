@@ -1,19 +1,24 @@
-"""Node: {{ agent.name if agent else "assistant" }} — the single agent for {{ spec.slug }}.
+"""Node: ``{{ agent.name if agent else "assistant" }}`` — the single agent for {{ spec.slug }}.
 
-Edit this file to customise the agent's behaviour. The system prompt is loaded
-from ``prompts.json`` (edit there, or with ``agentx prompt set``).
+Its prompt lives in ``prompts/{{ agent.name if agent else "assistant" }}.py`` (or
+``prompts.json`` at runtime); its typed I/O contract in
+``schemas/{{ agent.name if agent else "assistant" }}.py``. The underlying model +
+tools are built lazily on first call (see ``libs/agent_factory.py``).
 """
 from __future__ import annotations
 
 from ..libs.agent_factory import make_call_model
 from ..prompts import resolved_system_prompts
+from ..prompts.{{ agent.name if agent else "assistant" }} import SYSTEM_PROMPT as _DEFAULT_SYSTEM_PROMPT
 
+#: Agent name.
 NAME = "{{ agent.name if agent else "assistant" }}"
 
-_prompts = resolved_system_prompts()
-SYSTEM_PROMPT = _prompts.get(NAME) or next(iter(_prompts.values()), "You are a helpful assistant.")
+#: Runtime prompt: prompts.json override if set, else the module default.
+_resolved = resolved_system_prompts()
+SYSTEM_PROMPT = _resolved.get(NAME) or next(iter(_resolved.values()), None) or _DEFAULT_SYSTEM_PROMPT
 
-# The graph node callable (LLM turn; the graph wires it to a ToolNode).
+#: The LangGraph node callable (LLM turn; the graph wires it to a ToolNode).
 call_model = make_call_model(SYSTEM_PROMPT)
 
 __all__ = ["NAME", "SYSTEM_PROMPT", "call_model"]
