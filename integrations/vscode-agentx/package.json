@@ -1,0 +1,37 @@
+{
+  "name": "agentx",
+  "displayName": "AgentX",
+  "description": "Scaffold, visualize, and run AgentX agentic projects (LangGraph / CrewAI) from VS Code.",
+  "version": "0.1.0",
+  "publisher": "optimumai",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "Machine Learning"],
+  "keywords": ["agents", "langgraph", "crewai", "llm", "rag", "agentx"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "agentx.new", "title": "AgentX: New Project…" },
+      { "command": "agentx.graph", "title": "AgentX: Show Graph" },
+      { "command": "agentx.dashboard", "title": "AgentX: Launch Dashboard" },
+      { "command": "agentx.run", "title": "AgentX: Run Project" },
+      { "command": "agentx.providers", "title": "AgentX: List Providers" }
+    ],
+    "menus": {
+      "explorer/context": [
+        { "command": "agentx.graph", "when": "explorerResourceIsFolder", "group": "agentx" }
+      ]
+    },
+    "configuration": {
+      "title": "AgentX",
+      "properties": {
+        "agentx.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the agentx executable. Empty = auto-detect (.venv/bin/agentx, then PATH)."
+        }
+      }
+    }
+  }
+}
