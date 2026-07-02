@@ -19,6 +19,12 @@ from .spec import ProjectSpec
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # (template, output-relative-path) — output paths use {pkg} placeholder.
+# Generated projects use a structured, folder-per-concern layout:
+#   config.py · main.py            — entrypoints / settings
+#   state/    schemas/  prompts/   — graph state · I/O models · prompt registry
+#   nodes/    graph.py             — one module per agent + the assembled graph
+#   utils/    (llm/tools/rag/…)    — provider wiring, tool assembly, retrieval
+#   libs/     (agent_factory/…)    — shared building blocks (worker/coercion/voice)
 _COMMON_FILES: list[tuple[str, str]] = [
     ("pyproject.toml.j2", "pyproject.toml"),
     ("README.md.j2", "README.md"),
@@ -26,21 +32,27 @@ _COMMON_FILES: list[tuple[str, str]] = [
     ("gitignore.j2", ".gitignore"),
     ("pkg/__init__.py.j2", "src/{pkg}/__init__.py"),
     ("pkg/config.py.j2", "src/{pkg}/config.py"),
-    ("pkg/logging_setup.py.j2", "src/{pkg}/logging_setup.py"),
-    ("pkg/prompts.py.j2", "src/{pkg}/prompts.py"),
+    ("pkg/libs/__init__.py.j2", "src/{pkg}/libs/__init__.py"),
+    ("pkg/libs/logging_setup.py.j2", "src/{pkg}/libs/logging_setup.py"),
+    ("pkg/prompts/__init__.py.j2", "src/{pkg}/prompts/__init__.py"),
+    ("pkg/schemas/__init__.py.j2", "src/{pkg}/schemas/__init__.py"),
+    ("pkg/utils/__init__.py.j2", "src/{pkg}/utils/__init__.py"),
+    ("pkg/utils/llm.py.j2", "src/{pkg}/utils/llm.py"),
     ("pkg/main.py.j2", "src/{pkg}/main.py"),
 ]
 
-# A real LangGraph project: explicit state + nodes + graph + tool assembly.
+# A real LangGraph project: explicit state + per-agent nodes + graph + tools.
 _LANGGRAPH_FILES: list[tuple[str, str]] = [
-    ("pkg/state.py.j2", "src/{pkg}/state.py"),
-    ("pkg/tools.py.j2", "src/{pkg}/tools.py"),
-    ("pkg/nodes.py.j2", "src/{pkg}/nodes.py"),
+    ("pkg/state/__init__.py.j2", "src/{pkg}/state/__init__.py"),
+    ("pkg/utils/tools.py.j2", "src/{pkg}/utils/tools.py"),
+    ("pkg/libs/agent_factory.py.j2", "src/{pkg}/libs/agent_factory.py"),
+    ("pkg/nodes/__init__.py.j2", "src/{pkg}/nodes/__init__.py"),
     ("pkg/graph.py.j2", "src/{pkg}/graph.py"),
 ]
 
-# A real CrewAI project: agents + tasks + crew.
+# A real CrewAI project: agents + tasks + crew (also uses utils/ + prompts/).
 _CREWAI_FILES: list[tuple[str, str]] = [
+    ("pkg/utils/tools.py.j2", "src/{pkg}/utils/tools.py"),
     ("pkg/agents.py.j2", "src/{pkg}/agents.py"),
     ("pkg/tasks.py.j2", "src/{pkg}/tasks.py"),
     ("pkg/crew.py.j2", "src/{pkg}/crew.py"),
@@ -96,6 +108,10 @@ def _extras(spec: ProjectSpec) -> list[str]:
         extras.add("observability")
     if spec.serve:
         extras.add("server")
+    if spec.use_voice:
+        extras.add("voice")
+    if spec.streamlit or spec.claw:
+        extras.add("streamlit")
     # Deterministic order for reproducible pyproject output.
     if spec.use_rag:
         # Add embedding provider extra when explicitly set
@@ -111,7 +127,8 @@ def _extras(spec: ProjectSpec) -> list[str]:
 
     order = ["langgraph", "crewai", "openai", "azure", "openrouter", "anthropic",
              "google", "vertex", "bedrock", "groq", "ollama", "huggingface",
-             "cohere", "voyage", "rag", "faiss", "mcp", "observability", "server"]
+             "cohere", "voyage", "rag", "faiss", "mcp", "observability", "server",
+             "voice", "streamlit"]
     return [e for e in order if e in extras]
 
 
@@ -127,6 +144,10 @@ def _context(spec: ProjectSpec) -> dict:
         "extras_str": ",".join(_extras(spec)),
         "multi_agent": len(spec.agents) > 1,
         "orchestration": spec.orchestration,
+        "use_voice": spec.use_voice,
+        "use_subagents": spec.use_subagents,
+        "streamlit": spec.streamlit,
+        "claw": spec.claw,
     }
 
 
@@ -145,7 +166,11 @@ def _conditional_files(spec: ProjectSpec) -> list[tuple[str, str]]:
     # Framework-specific core (real project structure).
     plan += _LANGGRAPH_FILES if spec.framework == "langgraph" else _CREWAI_FILES
     if spec.use_rag:
-        plan.append(("pkg/rag.py.j2", "src/{pkg}/rag.py"))
+        plan.append(("pkg/utils/embeddings.py.j2", "src/{pkg}/utils/embeddings.py"))
+        plan.append(("pkg/utils/rag.py.j2", "src/{pkg}/utils/rag.py"))
+        plan.append(("pkg/utils/retriever.py.j2", "src/{pkg}/utils/retriever.py"))
+    if spec.use_voice:
+        plan.append(("pkg/libs/voice.py.j2", "src/{pkg}/libs/voice.py"))
     if spec.needs_memory:
         plan.append(("pkg/memory.py.j2", "src/{pkg}/memory.py"))
     if spec.use_mcp:
@@ -158,6 +183,13 @@ def _conditional_files(spec: ProjectSpec) -> list[tuple[str, str]]:
         plan.append(("pkg/guardrails.py.j2", "src/{pkg}/guardrails.py"))
     if spec.serve:
         plan.append(("pkg/server.py.j2", "src/{pkg}/server.py"))
+    if spec.claw:
+        plan.append(("pkg/claw/__init__.py.j2", "src/{pkg}/claw/__init__.py"))
+        plan.append(("pkg/claw/intent.py.j2", "src/{pkg}/claw/intent.py"))
+        plan.append(("pkg/claw/assistant.py.j2", "src/{pkg}/claw/assistant.py"))
+        plan.append(("pkg/claw/webhook.py.j2", "src/{pkg}/claw/webhook.py"))
+    if spec.streamlit:
+        plan.append(("streamlit_app.py.j2", "streamlit_app.py"))
     if spec.docker:
         plan.append(("Dockerfile.j2", "Dockerfile"))
         plan.append(("docker-compose.yml.j2", "docker-compose.yml"))
@@ -168,6 +200,52 @@ def _conditional_files(spec: ProjectSpec) -> list[tuple[str, str]]:
         plan.append(("evals/run_evals.py.j2", "evals/run_evals.py"))
         plan.append(("evals/dataset.json.j2", "evals/dataset.json"))
     return plan
+
+
+def _render_nodes(env, ctx: dict, spec: ProjectSpec, staging: Path) -> list[Path]:
+    """Render per-agent node modules for a LangGraph project.
+
+    Single-agent  → nodes/agent.py
+    Multi-agent   → nodes/<agent_name>.py for each agent (+ nodes/supervisor.py
+                    when orchestration == 'supervisor').
+    """
+    written: list[Path] = []
+    pkg_nodes = staging / "src" / spec.package / "nodes"
+    pkg_nodes.mkdir(parents=True, exist_ok=True)
+
+    if len(spec.agents) <= 1:
+        agent = spec.agents[0] if spec.agents else None
+        out = pkg_nodes / "agent.py"
+        out.write_text(
+            env.get_template("pkg/nodes/agent.py.j2").render(agent=agent, **ctx),
+            encoding="utf-8",
+        )
+        written.append(out)
+        return written
+
+    # Multi-agent: one module per agent (deduped, snake-cased names).
+    seen: set[str] = set()
+    for i, agent in enumerate(spec.agents):
+        if agent.name in seen:
+            continue
+        seen.add(agent.name)
+        out = pkg_nodes / f"{agent.name}.py"
+        out.write_text(
+            env.get_template("pkg/nodes/worker.py.j2").render(
+                agent=agent, agent_index=i, **ctx
+            ),
+            encoding="utf-8",
+        )
+        written.append(out)
+
+    if spec.orchestration == "supervisor":
+        out = pkg_nodes / "supervisor.py"
+        out.write_text(
+            env.get_template("pkg/nodes/supervisor.py.j2").render(**ctx),
+            encoding="utf-8",
+        )
+        written.append(out)
+    return written
 
 
 def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
@@ -190,6 +268,10 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
             "memory": spec.memory,
             "mcp": spec.use_mcp,
             "skills": spec.use_skills,
+            "voice": spec.use_voice,
+            "subagents": spec.use_subagents,
+            "streamlit": spec.streamlit,
+            "claw": spec.claw,
             "observability": spec.observability,
             "guardrails": spec.guardrails,
             "serve": spec.serve,
@@ -240,6 +322,12 @@ def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool 
             rendered = env.get_template(template_name).render(**ctx)
             out_path.write_text(rendered, encoding="utf-8")
             staged_written.append(out_path)
+
+        # LangGraph: render one node module per agent (nodes/<name>.py), plus a
+        # supervisor router when in supervisor mode. This gives users the
+        # per-agent file layout (node1.py, node2.py …) they can edit directly.
+        if spec.framework == "langgraph":
+            staged_written += _render_nodes(env, ctx, spec, staging)
 
         # Seed knowledge/ when needed.
         if spec.use_rag or spec.use_mcp:

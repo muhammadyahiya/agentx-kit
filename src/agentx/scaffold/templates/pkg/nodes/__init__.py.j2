@@ -1,0 +1,40 @@
+"""Node registry for {{ spec.slug }}.
+
+{% if not multi_agent %}Single agent: exposes ``call_model`` (see agent.py).{% else %}Multi-agent ({{ orchestration }}): one module per agent under nodes/, aggregated
+into ``NODES`` (name → node) and ``WORKERS`` (ordered names){% if orchestration == "supervisor" %}, plus the supervisor router{% endif %}.{% endif %}
+"""
+from __future__ import annotations
+{% if not multi_agent %}
+
+from .agent import NAME, call_model
+
+__all__ = ["NAME", "call_model"]
+{% else %}
+{% set ns = namespace(seen=[]) %}
+{% for a in spec.agents %}
+{% if a.name not in ns.seen %}
+from . import {{ a.name }} as _{{ a.name }}
+{% set ns.seen = ns.seen + [a.name] %}
+{% endif %}
+{% endfor %}
+{% if orchestration == "supervisor" %}
+from .supervisor import make_supervisor
+{% endif %}
+
+# Worker registry (name → node callable), in declaration order.
+{% set ns2 = namespace(seen=[]) %}
+NODES = {
+{% for a in spec.agents %}
+{% if a.name not in ns2.seen %}
+    _{{ a.name }}.NAME: _{{ a.name }}.node,
+{% set ns2.seen = ns2.seen + [a.name] %}
+{% endif %}
+{% endfor %}
+}
+WORKERS = list(NODES)
+{% if orchestration == "supervisor" %}
+supervisor = make_supervisor(WORKERS)
+{% endif %}
+
+__all__ = ["NODES", "WORKERS"{% if orchestration == "supervisor" %}, "supervisor"{% endif %}]
+{% endif %}

@@ -68,6 +68,11 @@ class ProjectSpec(BaseModel):
     memory: MemoryMode = "none"
     use_mcp: bool = False
     use_skills: bool = False
+    # ----- voice / swarm / channels / UI -----
+    use_voice: bool = False        # speech-to-text + text-to-speech I/O helpers
+    use_subagents: bool = False    # attach sub-agents (agent-as-tool) to each agent
+    streamlit: bool = False        # generate a Streamlit UI (chat + optional voice)
+    claw: bool = False             # multi-channel content assistant (webhook + intent router)
     prompt_style: PromptStyle = "default"
     # ----- enterprise features -----
     observability: bool = False   # OpenTelemetry / Langfuse tracing wiring

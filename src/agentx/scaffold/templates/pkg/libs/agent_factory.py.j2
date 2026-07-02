@@ -1,0 +1,117 @@
+"""Agent/worker factory for {{ spec.slug }}.
+
+Shared builders so every node module (nodes/*.py) stays thin and consistent:
+
+* ``make_call_model``  — single-agent node (LLM ⇄ ToolNode loop lives in graph.py)
+* ``make_worker``      — a worker node backed by a full ReAct sub-graph so tools
+                         (web{% if spec.use_rag %}, knowledge{% endif %}{% if spec.use_mcp %}, MCP{% endif %}) actually execute
+
+Both handle models that emit tool calls as JSON text (llama3.2 / small local
+models) via AgentX's tool-call coercion hook.
+"""
+from __future__ import annotations
+
+import logging
+
+from langchain_core.messages import AIMessage, SystemMessage
+
+from agentx.tools import coerce_message, parse_json_tool_call, tool_call_coercion_hook
+
+from ..utils.llm import build_model
+from ..utils.tools import get_tools
+
+logger = logging.getLogger(__name__)
+
+
+def _last_text(messages) -> str:
+    for m in reversed(messages):
+        c = getattr(m, "content", "")
+        if c and isinstance(c, str):
+            return c
+    return ""
+
+
+def make_call_model(system_prompt: str):
+    """Build a single-agent node: call the model, coercing JSON tool calls.
+
+    The graph wires this node to a ToolNode via ``tools_condition``; this
+    function only produces the model turn (and fixes JSON-in-content tool calls
+    so the ToolNode actually runs them).
+    """
+    tools = list(get_tools())
+    tool_names = {getattr(t, "name", "") for t in tools}
+
+    async def call_model(state) -> dict:
+        messages = [SystemMessage(system_prompt)] + state["messages"]
+        try:
+            response = await build_model(tools=tools).ainvoke(messages)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("call_model failed")
+            return {"messages": [AIMessage(content=f"Sorry, I hit an error: {exc}")]}
+
+        # Coerce JSON-in-content tool calls so tools_condition routes to tools.
+        coerced = coerce_message(response, tool_names)
+        if getattr(coerced, "tool_calls", None):
+            return {"messages": [coerced]}
+
+        # If the model emitted a tool-call-shaped JSON we could NOT map to a real
+        # tool (small models hallucinate tool names), don't leak raw JSON — ask
+        # it to answer in plain language instead.
+        if response.content and parse_json_tool_call(str(response.content)) is not None:
+            try:
+                response = await build_model(bind_tools=False).ainvoke(
+                    messages + [{"role": "user", "content": (
+                        "Answer the previous question directly, in plain language. "
+                        "Do NOT output JSON or a tool call."
+                    )}]
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("re-prompt for prose failed: %s", exc)
+        return {"messages": [response]}
+
+    return call_model
+
+
+def make_worker(name: str, system_prompt: str):
+    """Build a worker node as a full ReAct sub-agent (tools execute)."""
+    from langgraph.prebuilt import create_react_agent
+
+    tools = list(get_tools())
+    agent = create_react_agent(
+        build_model(bind_tools=False),
+        tools,
+        prompt=system_prompt,
+        post_model_hook=tool_call_coercion_hook(tools),
+    )
+
+    async def worker(state) -> dict:
+        try:
+            result = await agent.ainvoke(
+                {"messages": state["messages"]}, config={"recursion_limit": 12}
+            )
+            content = _last_text(result.get("messages", []))
+            # If the sub-agent ended on an unresolved tool-call JSON (small models
+            # hallucinate tool names the ReAct loop can't run), re-prompt for prose.
+            if content and parse_json_tool_call(content) is not None:
+                try:
+                    fr = await build_model(bind_tools=False).ainvoke(
+                        [SystemMessage(system_prompt)] + list(state["messages"]) + [
+                            {"role": "user", "content": (
+                                "Answer the request directly, in plain language. "
+                                "Do NOT output JSON or a tool call."
+                            )}
+                        ]
+                    )
+                    content = fr.content or content
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("worker %r prose re-prompt failed: %s", name, exc)
+            content = content or f"({name} produced no output)"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("worker %r failed", name)
+            content = f"Sorry, I ({name}) hit an error: {exc}"
+        return {"messages": [AIMessage(content=content, name=name)]}
+
+    return worker
+
+
+__all__ = ["make_call_model", "make_worker"]

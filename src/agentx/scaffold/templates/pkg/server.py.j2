@@ -23,9 +23,16 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Path as PathParam, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
 
-from .logging_setup import setup_logging
+from .libs.logging_setup import setup_logging
+from .schemas import (
+    ChatRequest,
+    ChatResponse,
+    HealthComponent,
+    HealthResponse,
+    SessionHistory,
+    SessionMessage,
+)
 
 load_dotenv()
 setup_logging()   # app at INFO, noisy third-party libs at WARNING
@@ -93,6 +100,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+{% if spec.claw %}
+# Claw multi-channel assistant: POST /claw/webhook
+from .claw.webhook import router as claw_router
+
+app.include_router(claw_router)
+{% endif %}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -105,43 +118,7 @@ def _config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=16000, description="User message.")
-    session_id: str = Field(
-        default="",
-        max_length=128,
-        description="Stable session id for multi-turn memory. Blank → new session.",
-    )
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    session_id: str
-
-
-class SessionMessage(BaseModel):
-    role: str
-    content: str
-
-
-class SessionHistory(BaseModel):
-    session_id: str
-    messages: list[SessionMessage]
-
-
-class HealthComponent(BaseModel):
-    name: str
-    status: str            # "ok" | "degraded" | "error"
-    detail: str = ""
-
-
-class HealthResponse(BaseModel):
-    status: str            # overall — "ok" | "degraded" | "error"
-    service: str
-    version: str
-    components: list[HealthComponent]
+# Schemas live in {{ pkg }}/schemas/ — imported above.
 
 
 # ── Routes: health ───────────────────────────────────────────────────────────

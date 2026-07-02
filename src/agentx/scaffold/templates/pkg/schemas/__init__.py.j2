@@ -1,0 +1,57 @@
+"""Pydantic I/O schemas for {{ spec.slug }}.
+
+Request/response models shared by the API server{% if spec.streamlit %} and Streamlit UI{% endif %}. Keeping them
+here (rather than inline in server.py) makes the contract explicit and reusable.
+"""
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class ChatRequest(BaseModel):
+    """A single chat turn."""
+
+    message: str = Field(..., min_length=1, max_length=16000, description="User message.")
+    session_id: str = Field(
+        default="",
+        max_length=128,
+        description="Stable session id for multi-turn memory. Blank → new session.",
+    )
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    session_id: str
+
+
+class SessionMessage(BaseModel):
+    role: str
+    content: str
+
+
+class SessionHistory(BaseModel):
+    session_id: str
+    messages: list[SessionMessage]
+
+
+class HealthComponent(BaseModel):
+    name: str
+    status: str            # "ok" | "degraded" | "error"
+    detail: str = ""
+
+
+class HealthResponse(BaseModel):
+    status: str            # overall — "ok" | "degraded" | "error"
+    service: str
+    version: str
+    components: list[HealthComponent]
+
+
+__all__ = [
+    "ChatRequest",
+    "ChatResponse",
+    "SessionMessage",
+    "SessionHistory",
+    "HealthComponent",
+    "HealthResponse",
+]

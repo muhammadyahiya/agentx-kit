@@ -1,0 +1,60 @@
+"""Claw assistant — orchestrates intent → agent graph → reply.
+
+``ClawAssistant.handle`` is channel-agnostic: pass in text (already transcribed
+from voice if needed) and get back a structured reply. The webhook and Streamlit
+UI both call through here.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+from ..graph import arun_text
+from .intent import Intent, classify_intent
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ClawReply:
+    text: str
+    intent: str
+    session_id: str
+    audio: bytes | None = None   # populated for voice intents when voice is enabled
+
+
+class ClawAssistant:
+    """Routes an inbound message through intent classification to the agent graph."""
+
+    def __init__(self, *, enable_voice: bool = {{ 'True' if spec.use_voice else 'False' }}):
+        self.enable_voice = enable_voice
+
+    async def handle(self, message: str, session_id: str = "default") -> ClawReply:
+        intent = classify_intent(message)
+        logger.info("claw intent=%s session=%s", intent.value, session_id)
+
+        if intent is Intent.SUMMARIZE:
+            message = f"Summarise the following concisely:\n\n{message}"
+
+        reply_text = await arun_text(message, thread_id=session_id)
+
+        audio: bytes | None = None
+        if self.enable_voice and intent is Intent.VOICE:
+            try:
+                from ..libs.voice import text_to_speech
+                audio = text_to_speech(reply_text)
+            except Exception:  # noqa: BLE001
+                logger.warning("voice synthesis failed; returning text only", exc_info=True)
+
+        return ClawReply(text=reply_text, intent=intent.value, session_id=session_id, audio=audio)
+
+
+_default = ClawAssistant()
+
+
+async def handle_message(message: str, session_id: str = "default") -> ClawReply:
+    """Module-level convenience over a shared :class:`ClawAssistant`."""
+    return await _default.handle(message, session_id=session_id)
+
+
+__all__ = ["ClawAssistant", "ClawReply", "handle_message"]

@@ -48,10 +48,19 @@ def test_generate_langgraph_full(tmp_path):
     assert (root / "pyproject.toml").exists()
     assert (root / "src/lg_bot/main.py").exists()
     assert (root / "src/lg_bot/graph.py").exists()
-    assert (root / "src/lg_bot/state.py").exists()
-    assert (root / "src/lg_bot/nodes.py").exists()
-    assert (root / "src/lg_bot/tools.py").exists()
-    assert (root / "src/lg_bot/rag.py").exists()
+    # Structured folder layout (state/ schemas/ prompts/ nodes/ utils/ libs/).
+    assert (root / "src/lg_bot/state/__init__.py").exists()
+    assert (root / "src/lg_bot/schemas/__init__.py").exists()
+    assert (root / "src/lg_bot/prompts/__init__.py").exists()
+    assert (root / "src/lg_bot/utils/tools.py").exists()
+    assert (root / "src/lg_bot/utils/llm.py").exists()
+    assert (root / "src/lg_bot/utils/rag.py").exists()
+    assert (root / "src/lg_bot/utils/retriever.py").exists()
+    assert (root / "src/lg_bot/libs/agent_factory.py").exists()
+    # One node module per agent (multi-agent → supervisor router too).
+    assert (root / "src/lg_bot/nodes/researcher.py").exists()
+    assert (root / "src/lg_bot/nodes/writer.py").exists()
+    assert (root / "src/lg_bot/nodes/supervisor.py").exists()
     assert (root / "src/lg_bot/memory.py").exists()
     assert (root / "mcp_servers.json").exists()
     assert (root / "data/skills/star-method.json").exists()
@@ -59,7 +68,7 @@ def test_generate_langgraph_full(tmp_path):
     # The graph uses real langgraph/langchain APIs (not just a wrapper).
     graph = (root / "src/lg_bot/graph.py").read_text()
     assert "StateGraph" in graph and "from langgraph.graph import" in graph
-    state = (root / "src/lg_bot/state.py").read_text()
+    state = (root / "src/lg_bot/state/__init__.py").read_text()
     assert "add_messages" in state and "TypedDict" in state
     # pyproject wires the right extras + script.
     pyproject = (root / "pyproject.toml").read_text()
@@ -77,7 +86,7 @@ def test_generate_crewai_minimal(tmp_path):
     s = _spec(name="crew-bot", framework="crewai", provider="openrouter", memory="none")
     result = generate_project(s, tmp_path / "crew", overwrite=True)
     root = result.target_dir
-    assert not (root / "src/crew_bot/rag.py").exists()
+    assert not (root / "src/crew_bot/utils/rag.py").exists()
     assert not (root / "src/crew_bot/memory.py").exists()
     # Real CrewAI structure: agents + tasks + crew.
     assert "build_crewai_agent" in (root / "src/crew_bot/agents.py").read_text()
@@ -85,6 +94,52 @@ def test_generate_crewai_minimal(tmp_path):
     crew = (root / "src/crew_bot/crew.py").read_text()
     assert "build_crew" in crew and "build_project_crew" in crew
     _compile_tree(root)
+
+
+@pytest.mark.parametrize("orchestration", ["supervisor", "sequential", "parallel"])
+def test_generate_orchestration_variants_compile(tmp_path, orchestration):
+    s = _spec(
+        name=f"orch-{orchestration}", framework="langgraph",
+        agents=[AgentSpec(name="alpha"), AgentSpec(name="beta")],
+        orchestration=orchestration,
+    )
+    root = generate_project(s, tmp_path / orchestration, overwrite=True).target_dir
+    pkg = f"orch_{orchestration}"
+    assert (root / f"src/{pkg}/nodes/alpha.py").exists()
+    assert (root / f"src/{pkg}/nodes/beta.py").exists()
+    assert (root / f"src/{pkg}/nodes/supervisor.py").exists() == (orchestration == "supervisor")
+    graph = (root / f"src/{pkg}/graph.py").read_text()
+    assert "build_graph" in graph
+    _compile_tree(root)
+
+
+def test_generate_voice_subagents_claw_streamlit(tmp_path):
+    s = _spec(
+        name="rich-bot", framework="langgraph",
+        agents=[AgentSpec(name="assistant")],
+        use_voice=True, use_subagents=True, claw=True, streamlit=True, serve=True,
+    )
+    root = generate_project(s, tmp_path / "rich", overwrite=True).target_dir
+    assert (root / "src/rich_bot/libs/voice.py").exists()
+    assert (root / "src/rich_bot/claw/webhook.py").exists()
+    assert (root / "src/rich_bot/claw/intent.py").exists()
+    assert (root / "streamlit_app.py").exists()
+    # Sub-agent wiring is present in tool assembly.
+    tools = (root / "src/rich_bot/utils/tools.py").read_text()
+    assert "make_subagent_tool" in tools and "get_subagent_tools" in tools
+    # Server mounts the claw router.
+    assert "claw_router" in (root / "src/rich_bot/server.py").read_text()
+    _compile_tree(root)
+    # Manifest records the new features.
+    import json
+    feats = json.loads((root / "agentx.json").read_text())["features"]
+    assert feats["voice"] and feats["subagents"] and feats["claw"] and feats["streamlit"]
+
+
+def test_extras_include_voice_and_streamlit():
+    s = _spec(use_voice=True, streamlit=True, claw=True)
+    extras = _extras(s)
+    assert "voice" in extras and "streamlit" in extras
 
 
 def test_generate_refuses_nonempty_dir(tmp_path):

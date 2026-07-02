@@ -1,0 +1,27 @@
+"""LLM wiring for {{ spec.slug }}.
+
+Thin wrapper over AgentX's provider-agnostic factory so every node/agent builds
+its model the same way (provider + model from config, optional tool binding).
+"""
+from __future__ import annotations
+
+from agentx import get_chat_model
+
+from ..config import MODEL, PROVIDER, settings
+
+
+def get_model(**kwargs):
+    """Return a chat model for the configured provider/model."""
+    kwargs.setdefault("temperature", settings.temperature)
+    return get_chat_model(PROVIDER, MODEL, **kwargs)
+
+
+def build_model(tools=None, bind_tools: bool = True, **kwargs):
+    """Return a chat model, optionally bound to ``tools`` for tool calling."""
+    llm = get_model(**kwargs)
+    if bind_tools and tools:
+        return llm.bind_tools(list(tools))
+    return llm
+
+
+__all__ = ["get_model", "build_model"]

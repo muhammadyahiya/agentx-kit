@@ -1,0 +1,13 @@
+"""Claw — a multi-channel content assistant for {{ spec.slug }}.
+
+Ingests messages from any channel (a generic webhook; add WhatsApp/Telegram/
+Email adapters as needed), classifies intent with the LLM, routes to the agent
+graph{% if spec.use_voice %}, and can reply with synthesized voice{% endif %}.
+
+Design (mirrors the reference "claw" architecture):
+    channel → intent classifier → handler (chat / {% if spec.use_voice %}voice / {% endif %}other) → reply
+"""
+from .assistant import ClawAssistant, handle_message
+from .intent import Intent, classify_intent
+
+__all__ = ["ClawAssistant", "handle_message", "Intent", "classify_intent"]

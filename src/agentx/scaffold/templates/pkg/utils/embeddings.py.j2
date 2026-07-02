@@ -1,0 +1,23 @@
+"""Embedding provider selection for {{ spec.slug }}.
+
+Resolves an embedding config from (in order): the ``AGENTX_EMBEDDING_PROVIDER``
+env var, the value chosen at generation time, else auto-detect
+(HuggingFace local → OpenAI → Ollama → keyword fallback).
+"""
+from __future__ import annotations
+
+import os
+
+from agentx.rag.embeddings import embedding_config_from_name
+
+# Chosen at generation time; blank = auto-detect.
+DEFAULT_EMBEDDING_PROVIDER = "{{ spec.embedding_provider }}"
+
+
+def get_embedding_config():
+    """Return an embedding config, or ``None`` to let the pipeline auto-detect."""
+    name = os.getenv("AGENTX_EMBEDDING_PROVIDER", DEFAULT_EMBEDDING_PROVIDER).strip()
+    return embedding_config_from_name(name) if name else None
+
+
+__all__ = ["get_embedding_config", "DEFAULT_EMBEDDING_PROVIDER"]

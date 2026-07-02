@@ -1,10 +1,17 @@
 """Typed configuration for {{ spec.slug }} (12-factor, pydantic-settings).
 
 Reads from environment / .env. Override at runtime, e.g. AGENTX_MODEL=gpt-4o.
+``PROJECT_ROOT`` is the single source of truth for on-disk paths so modules in
+nested packages (nodes/, utils/, …) never guess ``parents[N]`` depths.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# src/{{ pkg }}/config.py → parents[2] == project root.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):

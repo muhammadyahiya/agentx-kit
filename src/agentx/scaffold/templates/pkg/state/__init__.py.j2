@@ -1,4 +1,8 @@
-"""Graph state schema for {{ spec.slug }}."""
+"""Graph state schema for {{ spec.slug }}.
+
+The state flows between nodes. ``messages`` uses the ``add_messages`` reducer so
+each node appends to the running conversation.
+"""
 from __future__ import annotations
 
 from typing import Annotated, TypedDict
@@ -15,3 +19,6 @@ class AgentState(TypedDict):
     # Supervisor routing: the name of the next worker to run, or "FINISH".
     next: str
 {% endif %}
+
+
+__all__ = ["AgentState"]

@@ -1,0 +1,24 @@
+"""Voice I/O for {{ spec.slug }} — Speech-to-Text + Text-to-Speech.
+
+Thin wrappers over ``agentx.voice`` (local-first auto-detect: faster-whisper /
+edge-tts, with OpenAI cloud fallback). Install backends with
+``uv pip install 'agentx-kit[voice]'``.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from agentx.voice import synthesize, transcribe
+
+
+def speech_to_text(audio: bytes | str | Path, language: str = "en") -> str:
+    """Transcribe an audio file/bytes to text."""
+    return transcribe(audio, language=language).text
+
+
+def text_to_speech(text: str, voice: str | None = None) -> bytes:
+    """Synthesize ``text`` to speech audio bytes (mp3/wav depending on backend)."""
+    return synthesize(text, voice=voice).audio
+
+
+__all__ = ["speech_to_text", "text_to_speech"]

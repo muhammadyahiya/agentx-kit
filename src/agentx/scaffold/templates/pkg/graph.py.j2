@@ -1,13 +1,13 @@
 """LangGraph workflow for {{ spec.slug }}.
 
-Exposes a module-level compiled ``graph`` (the LangGraph convention, also picked
-up by ``langgraph dev``) and ``run_text`` / ``stream_text`` helpers.
+Assembles the compiled ``graph`` from the per-agent nodes in ``nodes/`` and
+exposes ``run_text`` / ``arun_text`` / ``stream_text`` helpers.
 
-{% if multi_agent %}
-Orchestration: {{ orchestration }}
-{% if orchestration == "supervisor" %}  An LLM router decides which specialist to call next.{% endif %}
+{% if multi_agent %}Orchestration: {{ orchestration }}
+{% if orchestration == "supervisor" %}  An LLM router (nodes/supervisor.py) picks which specialist acts next.{% endif %}
 {% if orchestration == "sequential" %}  Agents run in order: {% for a in spec.agents %}{{ a.name }}{% if not loop.last %} → {% endif %}{% endfor %}.{% endif %}
 {% if orchestration == "parallel" %}  All agents answer simultaneously; results are merged.{% endif %}
+{% else %}Single ReAct agent (nodes/agent.py) ⇄ tools.
 {% endif %}
 """
 from __future__ import annotations
@@ -27,32 +27,28 @@ RECURSION_LIMIT = 25
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from .nodes import call_model
-from .tools import get_tools
+from .utils.tools import get_tools
 
 
 def build_graph():
-    """Build a ReAct agent graph: agent ⇄ tools loop, with checkpointed memory."""
+    """ReAct agent graph: agent ⇄ tools loop, with checkpointed memory."""
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
-    builder.add_node("tools", ToolNode(get_tools()))
-
+    builder.add_node("tools", ToolNode(list(get_tools())))
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")
-
     return builder.compile(checkpointer=MemorySaver())
 {% elif orchestration == "supervisor" %}
-from .nodes import WORKERS, make_worker, supervisor
-from .prompts import resolved_system_prompts
+from .nodes import NODES, WORKERS, supervisor
 
 
 def build_graph():
     """Supervisor graph: an LLM router picks the next specialist each turn."""
     builder = StateGraph(AgentState)
     builder.add_node("supervisor", supervisor)
-    for name, system_prompt in resolved_system_prompts().items():
-        builder.add_node(name, make_worker(name, system_prompt))
-
+    for name, node in NODES.items():
+        builder.add_node(name, node)
     builder.add_edge(START, "supervisor")
     builder.add_conditional_edges(
         "supervisor",
@@ -61,52 +57,51 @@ def build_graph():
     )
     for name in WORKERS:
         builder.add_edge(name, "supervisor")
-
     return builder.compile(checkpointer=MemorySaver())
 {% elif orchestration == "sequential" %}
-from .nodes import WORKERS, make_worker
-from .prompts import resolved_system_prompts
+from .nodes import NODES, WORKERS
 
 
 def build_graph():
-    """Sequential pipeline: agents run in order, each seeing the previous output."""
+    """Sequential pipeline: agents run in order, each seeing prior output."""
     builder = StateGraph(AgentState)
-    prompts = resolved_system_prompts()
-    names = list(prompts)
-
-    for name in names:
-        builder.add_node(name, make_worker(name, prompts[name]))
-
-    builder.add_edge(START, names[0])
-    for i in range(len(names) - 1):
-        builder.add_edge(names[i], names[i + 1])
-    builder.add_edge(names[-1], END)
-
+    for name, node in NODES.items():
+        builder.add_node(name, node)
+    builder.add_edge(START, WORKERS[0])
+    for i in range(len(WORKERS) - 1):
+        builder.add_edge(WORKERS[i], WORKERS[i + 1])
+    builder.add_edge(WORKERS[-1], END)
     return builder.compile(checkpointer=MemorySaver())
 {% elif orchestration == "parallel" %}
+from langchain_core.messages import AIMessage
 from langgraph.types import Send
 
-from .nodes import WORKERS, make_worker, merge_results
-from .prompts import resolved_system_prompts
+from .nodes import NODES, WORKERS
 
 
-def _fan_out(state: AgentState) -> list[Send]:
-    """Send the same user message to every worker simultaneously."""
+def _merge(state) -> dict:
+    """Combine every worker's answer into one reply."""
+    worker_msgs = [m for m in state["messages"] if getattr(m, "name", None) in set(WORKERS)]
+    if not worker_msgs:
+        return {}
+    combined = "\n\n".join(f"**{m.name}**:\n{m.content}" for m in worker_msgs)
+    return {"messages": [AIMessage(content=combined)]}
+
+
+def _fan_out(state):
     return [Send(name, state) for name in WORKERS]
 
 
 def build_graph():
-    """Parallel graph: all agents answer simultaneously, then results are merged."""
+    """Parallel graph: all agents answer simultaneously, then results merge."""
     builder = StateGraph(AgentState)
-    for name, system_prompt in resolved_system_prompts().items():
-        builder.add_node(name, make_worker(name, system_prompt))
-    builder.add_node("merge", merge_results)
-
+    for name, node in NODES.items():
+        builder.add_node(name, node)
+    builder.add_node("merge", _merge)
     builder.add_conditional_edges(START, _fan_out, WORKERS)
     for name in WORKERS:
         builder.add_edge(name, "merge")
     builder.add_edge("merge", END)
-
     return builder.compile(checkpointer=MemorySaver())
 {% endif %}
 
@@ -119,14 +114,10 @@ def _config(thread_id: str) -> dict:
 
 
 async def arun_text(message: str, thread_id: str = "default", *, raise_errors: bool = False) -> str:
-    """Async invoke; runs async-only tools (MCP) correctly.
+    """Async invoke the graph; runs async-only tools (MCP) correctly.
 
-    Pass a unique ``thread_id`` per user/session — callers that omit it share
-    one conversation history (fine for a single CLI session, wrong for a server).
-
-    ``raise_errors=True`` re-raises the underlying exception instead of returning
-    a friendly string — the FastAPI server uses this so failures surface as HTTP
-    500 rather than a 200 with an error message baked into the reply.
+    Pass a unique ``thread_id`` per user/session. ``raise_errors=True`` re-raises
+    so the API server can surface failures as HTTP 500.
     """
     try:
         result = await graph.ainvoke(
@@ -145,7 +136,7 @@ _loop: asyncio.AbstractEventLoop | None = None
 
 
 def _sync_loop() -> asyncio.AbstractEventLoop:
-    """Reuse one loop across calls so MCP stdio sessions don't break on turn 2."""
+    """Reuse one loop across calls so MCP stdio sessions survive multiple turns."""
     global _loop
     if _loop is None or _loop.is_closed():
         _loop = asyncio.new_event_loop()
@@ -158,11 +149,7 @@ def run_text(message: str, thread_id: str = "default") -> str:
 
 
 async def stream_text(message: str, thread_id: str = "default", *, raise_errors: bool = False):
-    """Yield reply tokens as the model produces them.
-
-    ``raise_errors=True`` re-raises so the SSE endpoint can emit a structured
-    error event instead of yielding the error text as a normal token.
-    """
+    """Yield reply tokens as the model produces them."""
     try:
         async for _ns, (chunk, meta) in graph.astream(
             {"messages": [{"role": "user", "content": message}]},

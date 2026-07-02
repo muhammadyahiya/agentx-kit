@@ -1,0 +1,51 @@
+"""Generic channel webhook for Claw.
+
+A FastAPI router exposing ``POST /claw/webhook`` that any channel (WhatsApp,
+Telegram, Slack, Email-to-webhook, a custom app) can POST to. Mount it on the
+main server, or run it standalone.
+
+    # in your server.py:
+    from .claw.webhook import router as claw_router
+    app.include_router(claw_router)
+
+Channel adapters normalise their payloads to ``{channel, sender, text,
+session_id}`` — add per-channel parsing/signature-verification as needed.
+"""
+from __future__ import annotations
+
+import base64
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from .assistant import handle_message
+
+router = APIRouter(prefix="/claw", tags=["claw"])
+
+
+class InboundMessage(BaseModel):
+    text: str = Field(..., min_length=1, max_length=16000)
+    sender: str = Field(default="anonymous", max_length=128)
+    channel: str = Field(default="webhook", max_length=64)
+    session_id: str = Field(default="", max_length=128)
+
+
+class OutboundMessage(BaseModel):
+    reply: str
+    intent: str
+    session_id: str
+    audio_base64: str | None = None
+
+
+@router.post("/webhook", response_model=OutboundMessage)
+async def claw_webhook(msg: InboundMessage) -> OutboundMessage:
+    """Receive a channel message, run it through Claw, return the reply."""
+    session_id = msg.session_id or f"{msg.channel}:{msg.sender}"
+    reply = await handle_message(msg.text, session_id=session_id)
+    audio_b64 = base64.b64encode(reply.audio).decode() if reply.audio else None
+    return OutboundMessage(
+        reply=reply.text, intent=reply.intent, session_id=reply.session_id, audio_base64=audio_b64
+    )
+
+
+__all__ = ["router"]
