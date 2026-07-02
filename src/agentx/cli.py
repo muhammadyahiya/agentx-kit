@@ -145,6 +145,51 @@ def _result_panel(result, spec: ProjectSpec) -> None:
 
 
 @app.command()
+def graph(
+    project: Path = typer.Option(None, "--project", "-p", help="Project dir (auto-detects agentx.json)."),
+    fmt: str = typer.Option("ascii", "--format", "-f", help="ascii | mermaid | json"),
+    introspect: bool = typer.Option(
+        False, "--introspect",
+        help="Import the compiled LangGraph for a ground-truth mermaid diagram (needs deps).",
+    ),
+) -> None:
+    """Show the structure and agent flow of a generated project.
+
+    Reads ``agentx.json`` and renders the agents, orchestration, tools, RAG/memory,
+    and the node/edge flow. Works with zero project dependencies installed.
+
+    Examples:
+
+        agentx graph                      # pretty tree of the project in cwd
+        agentx graph -f mermaid           # mermaid graph (paste into a .md / VS Code)
+        agentx graph -f json              # machine-readable structure
+        agentx graph --introspect -f mermaid   # real compiled-graph diagram
+    """
+    from .scaffold import graphviz
+
+    try:
+        root, manifest = graphviz.load_manifest(project)
+    except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    flow = graphviz.build_flow(manifest)
+    fmt = fmt.lower()
+    if fmt == "json":
+        import json as _json
+        console.print_json(_json.dumps(graphviz.render_json(manifest, flow)))
+    elif fmt == "mermaid":
+        text = None
+        if introspect:
+            text = graphviz.introspect_mermaid(root, manifest)
+            if text is None:
+                console.print("[dim]# introspection unavailable; showing manifest-derived diagram[/]")
+        console.print(text or graphviz.render_mermaid(manifest, flow))
+    else:
+        console.print(graphviz.render_ascii(manifest, flow))
+
+
+@app.command()
 def new(
     name: str = typer.Option(None, "--name", "-n", help="Project name."),
     out: Path = typer.Option(None, "--out", "-o", help="Target directory (default ./<name>)."),
@@ -158,6 +203,8 @@ def new(
     role: str = typer.Option("Helpful Assistant", help="Role for the first agent (with --yes)."),
     goal: str = typer.Option("Help the user accomplish their task accurately.", help="Goal for the first agent (with --yes)."),
     rag: bool = typer.Option(False, help="Include RAG (with --yes)."),
+    domain: str = typer.Option("", "--domain", help="Domain seed: '' auto-infer, 'none' generic, or legal|medical|finance|support|devops|research."),
+    problem: str = typer.Option("", "--problem", help="Problem statement — used to infer the domain."),
     memory: str = typer.Option("none", help="none|short|long|both (with --yes)."),
     mcp: bool = typer.Option(False, help="Include MCP tools (with --yes)."),
     skills: bool = typer.Option(False, help="Include skills registry (with --yes)."),
@@ -190,6 +237,7 @@ def new(
             name=name or "my-agent", framework=framework, provider=provider, model=model,
             agents=agent_specs, orchestration=orchestration,
             use_rag=rag, memory=memory, use_mcp=mcp, use_skills=skills,
+            domain=domain, problem_statement=problem,
             prompt_style="custom" if prompt else "default",
             observability=observability, guardrails=guardrails, serve=serve,
             docker=docker, ci=ci, evals=evals,

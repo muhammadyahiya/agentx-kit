@@ -11,22 +11,31 @@ from dataclasses import dataclass
 
 # Approximate context windows (tokens). Matched by substring on the model id.
 _CONTEXT_WINDOWS: dict[str, int] = {
-    "gpt-4o": 128_000, "gpt-4.1": 1_000_000, "gpt-4": 128_000, "o1": 200_000, "o3": 200_000,
-    "gpt-3.5": 16_385,
+    "gpt-4o": 128_000, "gpt-4.1": 1_000_000, "gpt-4": 128_000,
+    "o1": 200_000, "o3": 200_000, "o4": 200_000, "gpt-3.5": 16_385,
+    # Current-generation Claude (Opus 4.x / Sonnet 4.6 / Sonnet 5 / Fable 5: 1M; Haiku 4.5: 200K).
+    "claude-opus-4": 1_000_000, "claude-sonnet-5": 1_000_000, "claude-sonnet-4": 1_000_000,
+    "claude-fable-5": 1_000_000, "claude-haiku-4": 200_000,
     "claude-3-5": 200_000, "claude-3": 200_000, "claude": 200_000,
     "gemini-1.5": 1_000_000, "gemini-2": 1_000_000, "gemini": 1_000_000,
     "llama-3.3": 128_000, "llama-3.1": 128_000, "llama3": 8_192, "llama": 8_192,
-    "mixtral": 32_768, "mistral": 32_768, "qwen": 32_768,
+    "command-r": 128_000, "cohere": 128_000,
+    "mixtral": 32_768, "mistral-large": 128_000, "mistral": 32_768, "qwen": 32_768,
 }
 
 # Approximate USD per 1K tokens, as (input, output). Defaults are conservative.
 _PRICING: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.00015, 0.0006), "gpt-4o": (0.0025, 0.01), "gpt-4.1": (0.002, 0.008),
     "gpt-4": (0.03, 0.06), "gpt-3.5": (0.0005, 0.0015),
+    # Current-generation Claude pricing (per 1K tokens).
+    "claude-opus-4": (0.005, 0.025), "claude-fable-5": (0.010, 0.050),
+    "claude-sonnet-5": (0.003, 0.015), "claude-sonnet-4": (0.003, 0.015),
+    "claude-haiku-4": (0.001, 0.005),
     "claude-3-5-sonnet": (0.003, 0.015), "claude-3-5-haiku": (0.0008, 0.004),
     "claude-3-opus": (0.015, 0.075), "claude": (0.003, 0.015),
     "gemini-1.5-flash": (0.000075, 0.0003), "gemini-1.5-pro": (0.00125, 0.005), "gemini": (0.000075, 0.0003),
-    "llama": (0.0, 0.0), "qwen": (0.0, 0.0), "mistral": (0.0, 0.0),
+    "command-r-plus": (0.0025, 0.01), "command-r": (0.00015, 0.0006), "cohere": (0.00015, 0.0006),
+    "mistral-large": (0.002, 0.006), "llama": (0.0, 0.0), "qwen": (0.0, 0.0), "mistral": (0.0, 0.0),
 }
 
 _DEFAULT_WINDOW = 8_192

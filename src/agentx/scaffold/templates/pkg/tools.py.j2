@@ -2,8 +2,14 @@
 
 Tools are plain LangChain tools; the model binds to them and the graph's
 ToolNode executes any tool calls. Add your own tools to ``get_tools()``.
+
+``get_tools()`` is memoized with ``lru_cache`` so importing both ``nodes`` and
+``graph`` (each of which needs the tool list) does not spawn MCP subprocesses or
+rebuild the RAG index more than once.
 """
 from __future__ import annotations
+
+from functools import lru_cache
 
 from agentx.tools import make_web_search_tool
 {% if spec.use_rag %}from .rag import get_knowledge_tool
@@ -14,8 +20,13 @@ from agentx.tools import load_mcp_tools
 {% endif %}
 
 
-def get_tools() -> list:
-    """Return the tool list available to the agent(s)."""
+@lru_cache(maxsize=1)
+def get_tools() -> tuple:
+    """Return the (cached) tool list available to the agent(s).
+
+    Returns a tuple so the result is hashable/immutable; callers that need a
+    list can wrap with ``list(get_tools())``.
+    """
     tools = [make_web_search_tool()]
 {% if spec.use_rag %}
     tools.append(get_knowledge_tool())
@@ -23,4 +34,4 @@ def get_tools() -> list:
 {% if spec.use_mcp %}
     tools.extend(load_mcp_tools(Path(__file__).resolve().parents[2] / "mcp_servers.json"))
 {% endif %}
-    return tools
+    return tuple(tools)

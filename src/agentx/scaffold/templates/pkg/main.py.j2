@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dotenv import load_dotenv
+
+from .logging_setup import setup_logging
 {% if spec.observability %}from .observability import init_observability
 {% endif %}
 {% if spec.guardrails %}from .guardrails import guard_input, guard_output
@@ -15,6 +17,7 @@ from dotenv import load_dotenv
 
 def main() -> None:
     load_dotenv()
+    setup_logging()   # app at INFO, noisy third-party libs at WARNING
 {% if spec.observability %}
     init_observability()
 {% endif %}

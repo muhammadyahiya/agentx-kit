@@ -60,6 +60,11 @@ class ProjectSpec(BaseModel):
     vector_store: VectorStoreBackend = "chroma"
     embedding_provider: str = ""     # blank → auto-detect (HF local → OpenAI → Ollama)
     agent_mode: AgentMode = "chat"   # chat | autonomous | research
+    # Domain seeding: "" = auto-infer from name/problem_statement; "none" = force
+    # generic; else an explicit domain key (legal, medical, finance, …).
+    domain: str = ""
+    seed_domain_kb: bool = True
+    problem_statement: str = ""      # optional free text used for domain inference
     memory: MemoryMode = "none"
     use_mcp: bool = False
     use_skills: bool = False

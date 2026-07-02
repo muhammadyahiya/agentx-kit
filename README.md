@@ -7,9 +7,9 @@
 **A provider-agnostic agentic framework + interactive project scaffolder for LangChain & CrewAI.**
 
 Pick your LLM provider (OpenAI, Azure, OpenRouter, Anthropic, Gemini, Vertex AI,
-Bedrock, Groq, Ollama), choose your framework, agents, RAG, memory, MCP tools and
-skills — and AgentX-Kit generates a **ready-to-run project in its own `uv`
-virtual environment**.
+Bedrock, Groq, Ollama, **HuggingFace, Cohere, Mistral**), choose your framework,
+agents, RAG, memory, MCP tools and skills — and AgentX-Kit generates a
+**ready-to-run project in its own `uv` virtual environment**.
 
 ```bash
 pip install "agentx-kit[all]"
@@ -52,12 +52,31 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | `agentx new` | Interactive wizard → scaffold a uv project |
 | `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack) |
 | `agentx providers` | List LLM providers + required env vars |
+| `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
+| `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
+| `agentx agent run/research` | Run an autonomous or research agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
-| `agentx dashboard` | Prompt observability + optimization UI (`[dashboard]` extra) |
+| `agentx dashboard` | Prompt observability, optimization & eval UI (`[dashboard]` extra) |
 | `agentx cache stats / clear` | Inspect/clear the LLM response cache |
 | `agentx mcp` | Run as an MCP server for Claude/Copilot/Codex |
 | `agentx mcp --print-config` | Print the client config for those tools |
 | `agentx version` | Show the installed version |
+
+### ✨ Highlights
+- **12 LLM providers** + a curated **model catalog** (used by the wizard & dashboard).
+- **RAG that actually chunks + embeds**: LangChain splitter, FAISS **or** Chroma,
+  8 embedding providers (HuggingFace local needs no key), document loaders for
+  PDF / Excel / CSV / Word / Markdown, and incremental re-index via a manifest.
+- **Autonomous & research agents** (`agentx agent …`) — sandboxed file tools,
+  web search, citations.
+- **Domain-aware seeding**: name a project `legal-assistant` (or pass `--domain`)
+  and it gets an expert system prompt + a seed knowledge base + RAG on.
+- **Dashboard v2**: pick any provider/model, **enter your API key in the UI**,
+  run tests with caching, **LLM-judge relevance evals**, and prompt history.
+- **`agentx graph`** to see the agent flow; a **VS Code extension** in
+  [`integrations/vscode-agentx/`](integrations/vscode-agentx/).
+- **Production-hardened**: request timeouts, rate limiter, structured JSON logs,
+  input guardrails, health/readiness probes, and quiet third-party logging.
 
 ### ▶️ Try the demos (no API keys needed)
 ```bash

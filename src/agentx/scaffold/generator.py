@@ -26,6 +26,7 @@ _COMMON_FILES: list[tuple[str, str]] = [
     ("gitignore.j2", ".gitignore"),
     ("pkg/__init__.py.j2", "src/{pkg}/__init__.py"),
     ("pkg/config.py.j2", "src/{pkg}/config.py"),
+    ("pkg/logging_setup.py.j2", "src/{pkg}/logging_setup.py"),
     ("pkg/prompts.py.j2", "src/{pkg}/prompts.py"),
     ("pkg/main.py.j2", "src/{pkg}/main.py"),
 ]
@@ -44,6 +45,34 @@ _CREWAI_FILES: list[tuple[str, str]] = [
     ("pkg/tasks.py.j2", "src/{pkg}/tasks.py"),
     ("pkg/crew.py.j2", "src/{pkg}/crew.py"),
 ]
+
+
+def _apply_domain(spec: ProjectSpec):
+    """Infer (or look up) a domain and tailor the first agent + features in place.
+
+    Returns the resolved ``Domain`` (or ``None``). Sets the first agent's role +
+    system prompt to the domain expert persona when the agent has no explicit
+    prompt, enables RAG so the seeded knowledge base is indexed, and records the
+    domain for the manifest + KB seeding.
+    """
+    from .domains import get_domain, infer_domain
+
+    if spec.domain == "none":
+        return None
+    dom = get_domain(spec.domain) if spec.domain else infer_domain(spec.name, spec.problem_statement)
+    if dom is None:
+        return None
+
+    first = spec.agents[0] if spec.agents else None
+    if first is not None and not (first.system_prompt or "").strip():
+        first.system_prompt = dom.system_prompt
+        if first.role in ("", "Helpful Assistant", "Assistant"):
+            first.role = dom.label
+    # A domain agent is only useful with a knowledge base — turn RAG on.
+    if spec.seed_domain_kb:
+        spec.use_rag = True
+    spec.domain = dom.key   # persist the resolved domain for the manifest
+    return dom
 
 
 @dataclass
@@ -169,6 +198,7 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
             "evals": spec.evals,
             "cache": spec.use_cache,
         },
+        "domain": (spec.domain if spec.domain and spec.domain != "none" else None),
         "extras": _extras(spec),
         "telemetry_opt_out": False,
     }
@@ -190,6 +220,9 @@ def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool 
     if target.exists() and any(target.iterdir()) and not overwrite:
         raise FileExistsError(f"Target directory '{target}' exists and is not empty. Use overwrite=True.")
     target.parent.mkdir(parents=True, exist_ok=True)
+
+    # Tailor the first agent + features to an inferred/explicit domain (mutates spec).
+    domain = _apply_domain(spec)
 
     env = _env()
     ctx = _context(spec)
@@ -221,6 +254,12 @@ def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool 
                 encoding="utf-8",
             )
             staged_written.append(seed)
+
+            # Seed a domain-specific primer so RAG has real content on first run.
+            if domain is not None and spec.seed_domain_kb:
+                primer = knowledge_dir / f"{domain.key}-primer.md"
+                primer.write_text(domain.knowledge_seed, encoding="utf-8")
+                staged_written.append(primer)
 
         staged_written.append(prompts_store.write_prompts(staging, spec))
         staged_written.append(_write_manifest(staging, spec))

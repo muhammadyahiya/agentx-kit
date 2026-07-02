@@ -118,11 +118,15 @@ def _config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
 
 
-async def arun_text(message: str, thread_id: str = "default") -> str:
+async def arun_text(message: str, thread_id: str = "default", *, raise_errors: bool = False) -> str:
     """Async invoke; runs async-only tools (MCP) correctly.
 
     Pass a unique ``thread_id`` per user/session — callers that omit it share
     one conversation history (fine for a single CLI session, wrong for a server).
+
+    ``raise_errors=True`` re-raises the underlying exception instead of returning
+    a friendly string — the FastAPI server uses this so failures surface as HTTP
+    500 rather than a 200 with an error message baked into the reply.
     """
     try:
         result = await graph.ainvoke(
@@ -130,6 +134,8 @@ async def arun_text(message: str, thread_id: str = "default") -> str:
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("graph invocation failed")
+        if raise_errors:
+            raise
         return f"Sorry, something went wrong: {exc}"
     messages = result.get("messages", [])
     return getattr(messages[-1], "content", "") if messages else ""
@@ -151,8 +157,12 @@ def run_text(message: str, thread_id: str = "default") -> str:
     return _sync_loop().run_until_complete(arun_text(message, thread_id))
 
 
-async def stream_text(message: str, thread_id: str = "default"):
-    """Yield reply tokens as the model produces them."""
+async def stream_text(message: str, thread_id: str = "default", *, raise_errors: bool = False):
+    """Yield reply tokens as the model produces them.
+
+    ``raise_errors=True`` re-raises so the SSE endpoint can emit a structured
+    error event instead of yielding the error text as a normal token.
+    """
     try:
         async for _ns, (chunk, meta) in graph.astream(
             {"messages": [{"role": "user", "content": message}]},
@@ -169,4 +179,6 @@ async def stream_text(message: str, thread_id: str = "default"):
                 yield text
     except Exception as exc:  # noqa: BLE001
         logger.exception("graph streaming failed")
+        if raise_errors:
+            raise
         yield f"Sorry, something went wrong: {exc}"

@@ -61,7 +61,7 @@ def _build_anthropic(model: str | None = None, **kwargs: Any):
     mod = require("langchain_anthropic", "anthropic")
     # ChatAnthropic uses ``default_request_timeout`` (not ``timeout``).
     return mod.ChatAnthropic(
-        model=model or "claude-3-5-sonnet-latest",
+        model=model or "claude-sonnet-4-6",
         **_common(kwargs, timeout_kw="default_request_timeout"),
     )
 
@@ -137,6 +137,16 @@ def _build_huggingface(model: str | None = None, **kwargs: Any):
     return mod.ChatHuggingFace(llm=llm)
 
 
+def _build_cohere(model: str | None = None, **kwargs: Any):
+    mod = require("langchain_cohere", "cohere")
+    return mod.ChatCohere(model=model or "command-r-plus", **_common(kwargs, timeout_kw=None))
+
+
+def _build_mistral(model: str | None = None, **kwargs: Any):
+    mod = require("langchain_mistralai", "mistral")
+    return mod.ChatMistralAI(model=model or "mistral-large-latest", **_common(kwargs, timeout_kw="timeout"))
+
+
 # --------------------------------------------------------------------------- #
 # Registry
 # --------------------------------------------------------------------------- #
@@ -168,7 +178,7 @@ _register(ProviderSpec(
 ))
 _register(ProviderSpec(
     id="anthropic", label="Anthropic (Claude)", extra="anthropic", packages=("langchain_anthropic",),
-    default_model="claude-3-5-sonnet-latest", env_vars=("ANTHROPIC_API_KEY",),
+    default_model="claude-sonnet-4-6", env_vars=("ANTHROPIC_API_KEY",),
     crewai_prefix="anthropic/", build_chat=_build_anthropic, aliases=("claude",),
 ))
 _register(ProviderSpec(
@@ -215,6 +225,16 @@ _register(ProviderSpec(
         "Set HF_TOKEN for the Inference API, or HF_ENDPOINT_URL for a dedicated "
         "Inference Endpoint. Omit both to run a local pipeline (requires GPU/CPU)."
     ),
+))
+_register(ProviderSpec(
+    id="cohere", label="Cohere", extra="cohere", packages=("langchain_cohere",),
+    default_model="command-r-plus", env_vars=("COHERE_API_KEY",),
+    crewai_prefix="cohere/", build_chat=_build_cohere,
+))
+_register(ProviderSpec(
+    id="mistral", label="Mistral AI", extra="mistral", packages=("langchain_mistralai",),
+    default_model="mistral-large-latest", env_vars=("MISTRAL_API_KEY",),
+    crewai_prefix="mistral/", build_chat=_build_mistral, aliases=("mistralai",),
 ))
 
 
