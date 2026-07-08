@@ -43,6 +43,26 @@ def _role_for(text: str) -> str:
     return "Assistant"
 
 
+def _infer_mcp_tools(text: str) -> list[str]:
+    """Guess which built-in MCP server tools fit the problem statement.
+
+    Falls back to all four (the scaffolder's default) when nothing matches, so
+    the generated server is still useful out of the box.
+    """
+    from ..tools.mcp_server import AVAILABLE_MCP_TOOLS
+
+    picked: list[str] = []
+    if _has(text, "search the web", "web search", "google", "up-to-date", "current events", "news"):
+        picked.append("web_search")
+    if _has(text, "speak", "voice", "audio", "text-to-speech", "tts", "read aloud", "narrate"):
+        picked.append("tts")
+    if _has(text, "knowledge base", "documents", "docs", "manual", "faq", "search our", " kb", "research"):
+        picked.append("knowledge_research")
+    if _has(text, "database", "sql", "query", "records", "rows", "table"):
+        picked.append("database")
+    return picked or list(AVAILABLE_MCP_TOOLS)
+
+
 def recommend_spec(problem_statement: str) -> dict:
     """Return a recommended spec dict + rationale for a problem statement."""
     text = (problem_statement or "").lower().strip()
@@ -58,6 +78,7 @@ def recommend_spec(problem_statement: str) -> dict:
                   "across sessions", "previous", "chat history", "follow-up", "follow up")
     mcp = _has(text, "mcp", "external tool", "integrate with", "third-party", "third party",
                "plugin", "connect to", "external api")
+    mcp_tools = _infer_mcp_tools(text) if mcp else []
     skills = _has(text, "guideline", "standard", "compliance", "policy", "style guide",
                   "best practice", "framework method")
     serve = _has(text, "api", "endpoint", "serve", "rest", "http", "backend",
@@ -116,5 +137,6 @@ def recommend_spec(problem_statement: str) -> dict:
         "goal": goal[:300],
         "system_prompt": system_prompt[:600],
         "features": seen,
+        "mcp_tools": mcp_tools,
         "rationale": rationale,
     }

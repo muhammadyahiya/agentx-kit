@@ -64,6 +64,14 @@ def test_generate_langgraph_full(tmp_path):
     assert (root / "src/lg_bot/memory.py").exists()
     assert (root / "mcp_servers.json").exists()
     assert (root / "data/skills/star-method.json").exists()
+    # Own MCP server (defaults to all four built-in tools when mcp_tools is unset).
+    assert (root / "src/lg_bot/mcp/server.py").exists()
+    assert (root / "src/lg_bot/mcp/client_demo.py").exists()
+    server_src = (root / "src/lg_bot/mcp/server.py").read_text()
+    for t in ("web_search", "tts", "knowledge_research", "database"):
+        assert t in server_src
+    mcp_servers = (root / "mcp_servers.json").read_text()
+    assert "lg-bot-tools" in mcp_servers
     _compile_tree(root)
     # The graph uses real langgraph/langchain APIs (not just a wrapper).
     graph = (root / "src/lg_bot/graph.py").read_text()
@@ -74,6 +82,7 @@ def test_generate_langgraph_full(tmp_path):
     pyproject = (root / "pyproject.toml").read_text()
     assert "agentx-kit[" in pyproject and "langgraph" in pyproject and "rag" in pyproject
     assert "lg-bot = " in pyproject
+    assert "lg-bot-mcp-server = " in pyproject
     # Prompts are externalised into prompts.json (data-driven, editable post-gen).
     import json
     data = json.loads((root / "prompts.json").read_text())
@@ -187,3 +196,44 @@ def test_env_example_lists_provider_vars(tmp_path):
     env = (result.target_dir / ".env.example").read_text()
     assert "AZURE_OPENAI_API_KEY" in env
     assert "AGENTX_PROVIDER=azure" in env
+
+
+# ----- MCP tool template selection -----
+
+def test_mcp_tools_rejects_unknown_names():
+    with pytest.raises(Exception):
+        _spec(mcp_tools=["not-a-real-tool"])
+
+
+def test_effective_mcp_tools_defaults_and_disabled():
+    disabled = _spec(use_mcp=False, mcp_tools=[])
+    assert disabled.effective_mcp_tools == []
+
+    default_all = _spec(use_mcp=True, mcp_tools=[])
+    assert set(default_all.effective_mcp_tools) == {"web_search", "tts", "knowledge_research", "database"}
+
+    subset = _spec(use_mcp=True, mcp_tools=["web_search", "database"])
+    assert subset.effective_mcp_tools == ["web_search", "database"]
+
+
+def test_generate_mcp_tools_subset(tmp_path):
+    s = _spec(name="tool-bot", use_mcp=True, mcp_tools=["web_search", "database"])
+    result = generate_project(s, tmp_path / "toolbot", overwrite=True)
+    root = result.target_dir
+    server_src = (root / "src/tool_bot/mcp/server.py").read_text()
+    assert "web_search" in server_src and "database" in server_src
+    assert "tts" not in server_src and "knowledge_research" not in server_src
+    client_src = (root / "src/tool_bot/mcp/client_demo.py").read_text()
+    assert "web_search" in client_src and "list_tables" in client_src
+    assert "text_to_speech" not in client_src and "knowledge_search" not in client_src
+    import json
+    manifest = json.loads((root / "agentx.json").read_text())
+    assert manifest["features"]["mcp_tools"] == ["web_search", "database"]
+    # tts not selected → no need for the voice extra just because of MCP.
+    assert "voice" not in _extras(s)
+    _compile_tree(root)
+
+
+def test_extras_add_voice_when_tts_tool_selected():
+    s = _spec(use_mcp=True, mcp_tools=["tts"])
+    assert "voice" in _extras(s)

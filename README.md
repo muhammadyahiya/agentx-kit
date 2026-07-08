@@ -96,8 +96,9 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 
 ### ▶️ Try the demos (no API keys needed)
 ```bash
-bash examples/demo_local.sh     # verify local setup end-to-end
-python examples/demo_mcp.py     # test the Claude/Copilot MCP path (real handshake)
+bash examples/demo_local.sh            # verify local setup end-to-end
+python examples/demo_mcp.py            # test the Claude/Copilot MCP path (real handshake)
+python examples/mcp_toolkit_client.py  # web search / TTS / knowledge / DB tools over MCP
 ```
 See [`examples/`](examples/) for details.
 
@@ -183,7 +184,8 @@ The wizard asks, one option at a time:
 4. Number of **agents** (and their roles)
 5. **RAG** module? (vector store)
 6. **Memory**? (short-term / long-term / both)
-7. **MCP tools**?
+7. **MCP tools**? — and if so, which built-in ones your own MCP server exposes
+   (web search, text-to-speech, knowledge research, database — see below)
 8. **Skills** integration?
 9. **Prompt** style (defaults or scaffolded custom prompts)
 10. Create `.venv` and `uv sync` now?
@@ -269,6 +271,46 @@ The assistant calls AgentX-Kit's tools and you get a complete, runnable project:
 
 So from one sentence the assistant produces a pre-wired project (prompts already seeded from your use case), ready to `uv sync && uv run`.
 
+## 🛠️ MCP tool templates (web search · TTS · knowledge research · database)
+AgentX-Kit ships ready-made **MCP server tools**, importable directly — no
+generated project required:
+
+```bash
+pip install "agentx-kit[connector,voice]"
+```
+```python
+from agentx.tools.mcp_server import build_mcp_server
+
+mcp = build_mcp_server(
+    name="my-tools",
+    tools=["web_search", "tts", "knowledge_research", "database"],  # pick any subset
+    knowledge_root="./knowledge",   # scanned by knowledge_research (md/txt/pdf/docx/csv/xlsx)
+    db_path="./data.db",            # queried (read-only) by database
+)
+mcp.run()   # stdio MCP server — connect from Claude, a LangChain agent, or your own client
+```
+
+| Tool | What it does | Backing |
+|---|---|---|
+| `web_search` | DuckDuckGo search | `agentx.tools.builtin` |
+| `fetch_url` | Safe HTTP(S) GET + HTML strip | `agentx.tools.builtin` |
+| `text_to_speech` | Synthesize speech, returns an audio file path | `agentx.voice.tts` (edge-tts/OpenAI/pyttsx3) |
+| `knowledge_search` | Keyword search over local documents — no embeddings needed | `agentx.rag.loaders` |
+| `run_sql` / `list_tables` | Read-only SQLite queries (rejects non-`SELECT`) | `sqlite3` |
+
+Try it: `python examples/mcp_toolkit_server.py` + `python examples/mcp_toolkit_client.py`.
+
+**Or generate a project with these baked in** — pick "Integrate MCP tools?" in
+the wizard (or `agentx new --yes --mcp --mcp-tools web_search,database`) and
+the project gets its own `src/<pkg>/mcp/server.py` + a `mcp/client_demo.py`
+sample script, already registered in `mcp_servers.json` so the agent(s) can
+call these tools too:
+
+```bash
+uv run my-bot-mcp-server                        # run your generated MCP server
+uv run python -m my_bot.mcp.client_demo          # sample client
+```
+
 ## 🧩 Editor & assistant integrations
 The same connector powers ready-made integrations (see [`integrations/`](integrations/)):
 
@@ -351,7 +393,7 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `langgraph` | `langgraph`, `langchain` | LangGraph agents |
 | `crewai` | `crewai` | CrewAI crews |
 | `rag` | `langchain-community`, `chromadb` | RAG |
-| `mcp` | `langchain-mcp-adapters` | MCP tools |
+| `mcp` | `langchain-mcp-adapters`, `mcp` | MCP client tools + built-in MCP server templates |
 | `observability` | `opentelemetry-*`, `openinference-*` | tracing |
 | `server` | `fastapi`, `uvicorn` | serving |
 | `voice` | `faster-whisper`, `edge-tts`, `pyttsx3` | Speech-to-Text + Text-to-Speech |

@@ -2,6 +2,7 @@
 from .builtin import fetch_url, make_web_search_tool, web_search
 from .coerce import coerce_message, parse_json_tool_call, tool_call_coercion_hook
 from .mcp import load_mcp_tools
+from .mcp_server import AVAILABLE_MCP_TOOLS, build_mcp_server, run_mcp_server
 
 __all__ = [
     "load_mcp_tools",
@@ -11,4 +12,7 @@ __all__ = [
     "coerce_message",
     "parse_json_tool_call",
     "tool_call_coercion_hook",
+    "AVAILABLE_MCP_TOOLS",
+    "build_mcp_server",
+    "run_mcp_server",
 ]

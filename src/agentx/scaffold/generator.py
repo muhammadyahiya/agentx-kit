@@ -104,6 +104,8 @@ def _extras(spec: ProjectSpec) -> list[str]:
         extras.add("rag")
     if spec.use_mcp:
         extras.add("mcp")
+        if "tts" in spec.effective_mcp_tools:
+            extras.add("voice")
     if spec.observability:
         extras.add("observability")
     if spec.serve:
@@ -175,6 +177,9 @@ def _conditional_files(spec: ProjectSpec) -> list[tuple[str, str]]:
         plan.append(("pkg/memory.py.j2", "src/{pkg}/memory.py"))
     if spec.use_mcp:
         plan.append(("mcp_servers.json.j2", "mcp_servers.json"))
+        plan.append(("pkg/mcp/__init__.py.j2", "src/{pkg}/mcp/__init__.py"))
+        plan.append(("pkg/mcp/server.py.j2", "src/{pkg}/mcp/server.py"))
+        plan.append(("pkg/mcp/client_demo.py.j2", "src/{pkg}/mcp/client_demo.py"))
     if spec.use_skills:
         plan.append(("skills_seed.json.j2", "data/skills/star-method.json"))
     if spec.observability:
@@ -301,6 +306,7 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
             "agent_mode": spec.agent_mode,
             "memory": spec.memory,
             "mcp": spec.use_mcp,
+            "mcp_tools": spec.effective_mcp_tools,
             "skills": spec.use_skills,
             "voice": spec.use_voice,
             "subagents": spec.use_subagents,
