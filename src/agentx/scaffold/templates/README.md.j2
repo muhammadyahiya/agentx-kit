@@ -65,5 +65,20 @@ src/{{ pkg }}/
 Add `.txt`/`.md` files under `knowledge/` to populate the RAG index.
 {% endif %}
 {% if spec.use_mcp %}
-Edit `mcp_servers.json` to configure your MCP servers.
+Edit `mcp_servers.json` to configure external MCP servers your agent(s) can use.
+
+### Your own MCP server
+
+This project also ships its own MCP server (`src/{{ pkg }}/mcp/server.py`)
+exposing: **{{ spec.effective_mcp_tools | join(', ') }}**. Run it standalone,
+or connect it to Claude / Copilot / Codex:
+
+```bash
+uv run {{ spec.slug }}-mcp-server                       # run the server
+uv run python -m {{ pkg }}.mcp.client_demo               # sample client
+claude mcp add {{ spec.slug }}-tools -- uv run {{ spec.slug }}-mcp-server
+```
+
+It's already wired into `mcp_servers.json` as `{{ spec.slug }}-tools`, so the
+agent(s) in this project can call these tools too.
 {% endif %}

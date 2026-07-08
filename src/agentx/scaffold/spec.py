@@ -67,6 +67,9 @@ class ProjectSpec(BaseModel):
     problem_statement: str = ""      # optional free text used for domain inference
     memory: MemoryMode = "none"
     use_mcp: bool = False
+    # Built-in MCP server tools to bundle when use_mcp is set (subset of
+    # agentx.tools.mcp_server.AVAILABLE_MCP_TOOLS); empty + use_mcp=True → all of them.
+    mcp_tools: list[str] = Field(default_factory=list)
     use_skills: bool = False
     # ----- voice / swarm / channels / UI -----
     use_voice: bool = False        # speech-to-text + text-to-speech I/O helpers
@@ -117,6 +120,25 @@ class ProjectSpec(BaseModel):
     @property
     def multi_agent(self) -> bool:
         return len(self.agents) > 1
+
+    @property
+    def effective_mcp_tools(self) -> list[str]:
+        """``mcp_tools`` if set, else every built-in MCP tool (when ``use_mcp``)."""
+        from ..tools.mcp_server import AVAILABLE_MCP_TOOLS
+
+        if not self.use_mcp:
+            return []
+        return list(self.mcp_tools) if self.mcp_tools else list(AVAILABLE_MCP_TOOLS)
+
+    @field_validator("mcp_tools")
+    @classmethod
+    def _validate_mcp_tools(cls, v: list[str]) -> list[str]:
+        from ..tools.mcp_server import AVAILABLE_MCP_TOOLS
+
+        unknown = set(v) - set(AVAILABLE_MCP_TOOLS)
+        if unknown:
+            raise ValueError(f"mcp_tools must be a subset of {AVAILABLE_MCP_TOOLS} (got unknown: {sorted(unknown)})")
+        return v
 
     @field_validator("embedding_provider")
     @classmethod

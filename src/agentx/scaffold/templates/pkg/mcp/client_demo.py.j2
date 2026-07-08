@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+"""Sample MCP client for {{ spec.slug }} — connects to ``mcp/server.py`` over stdio,
+lists its tools, and calls each one. Run after ``uv sync``:
+
+    uv run python -m {{ pkg }}.mcp.client_demo
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+
+
+def _extract(result) -> str:
+    """Pull text out of an MCP CallToolResult (structured or text content)."""
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        return json.dumps(structured, indent=2)
+    for block in getattr(result, "content", []) or []:
+        text = getattr(block, "text", None)
+        if text:
+            return text
+    return str(result)
+
+
+async def main() -> int:
+    try:
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+    except ImportError:
+        print("Install the mcp extra first:  uv pip install 'agentx-kit[connector]'")
+        return 1
+
+    params = StdioServerParameters(command=sys.executable, args=["-m", "{{ pkg }}.mcp.server"])
+
+    print("▶ connecting to {{ spec.slug }}'s MCP server over stdio …")
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            print("✓ connected. tools:", [t.name for t in tools.tools])
+{% if "web_search" in spec.effective_mcp_tools %}
+            print("\n▶ web_search('agentx-kit release notes')")
+            print(_extract(await session.call_tool("web_search", {"query": "agentx-kit release notes"})))
+{% endif %}
+{% if "knowledge_research" in spec.effective_mcp_tools %}
+            print("\n▶ knowledge_search('overview')  (drop docs into ./knowledge for real matches)")
+            print(_extract(await session.call_tool("knowledge_search", {"query": "overview"})))
+{% endif %}
+{% if "database" in spec.effective_mcp_tools %}
+            print("\n▶ list_tables()  (point mcp/server.py's db_path at a real SQLite file)")
+            print(_extract(await session.call_tool("list_tables", {})))
+{% endif %}
+{% if "tts" in spec.effective_mcp_tools %}
+            print("\n▶ text_to_speech('Hello from {{ spec.slug }}')")
+            print(_extract(await session.call_tool("text_to_speech", {"text": "Hello from {{ spec.slug }}"})))
+{% endif %}
+
+    print("\n✅ {{ spec.slug }}'s MCP server works standalone and from any MCP client.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))

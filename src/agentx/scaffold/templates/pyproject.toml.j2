@@ -12,6 +12,9 @@ dependencies = [
 
 [project.scripts]
 {{ spec.slug }} = "{{ pkg }}.main:main"
+{% if spec.use_mcp %}
+{{ spec.slug }}-mcp-server = "{{ pkg }}.mcp.server:main"
+{% endif %}
 
 [build-system]
 requires = ["hatchling"]

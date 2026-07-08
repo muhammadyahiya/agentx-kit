@@ -40,6 +40,12 @@ _MEMORY = [
     ("Long-term (persistent JSONL)", "long"),
     ("Both", "both"),
 ]
+_MCP_TOOLS = [
+    ("Web search  — DuckDuckGo search + safe URL fetch", "web_search"),
+    ("Text-to-speech  — edge-tts / OpenAI / pyttsx3", "tts"),
+    ("Knowledge research  — keyword search over ./knowledge docs", "knowledge_research"),
+    ("Database  — read-only SQL over a local SQLite file", "database"),
+]
 _ORCHESTRATION = [
     (
         "Supervisor  — an LLM router decides which agent acts next (best for open-ended queries)",
@@ -145,6 +151,12 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         )
     memory = _select("Agent memory:", _MEMORY, "none")
     use_mcp = questionary.confirm("Integrate MCP tools?", default=False).ask()
+    mcp_tools: list[str] = []
+    if use_mcp:
+        mcp_tools = questionary.checkbox(
+            "  Which built-in MCP tools should your own server expose?",
+            choices=[questionary.Choice(title=label, value=value, checked=True) for label, value in _MCP_TOOLS],
+        ).ask() or []
     use_skills = questionary.confirm("Add a skills registry?", default=False).ask()
 
     # Sub-agents / swarm — attach delegate agents (each with its own tools) to the agent(s).
@@ -202,6 +214,7 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         embedding_provider=embedding_provider,
         memory=memory or "none",
         use_mcp=bool(use_mcp),
+        mcp_tools=list(mcp_tools),
         use_skills=bool(use_skills),
         use_subagents=bool(use_subagents),
         use_voice=bool(use_voice),

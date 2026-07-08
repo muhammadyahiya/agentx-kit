@@ -68,3 +68,25 @@ def test_client_config_shape():
 
     cfg = client_config()
     assert cfg["mcpServers"]["agentx-kit"]["args"] == ["mcp"]
+
+
+# ----- MCP tool template selection via the connector -----
+
+def test_recommend_infers_mcp_tools_from_keywords():
+    rec = recommend_spec("Connect to our external API to query SQL records and speak the answer aloud.")
+    assert "mcp" in rec["features"]
+    assert set(rec["mcp_tools"]) == {"database", "tts"}
+
+
+def test_recommend_mcp_tools_empty_when_mcp_not_detected():
+    rec = recommend_spec("just chat with me")
+    assert rec["mcp_tools"] == []
+
+
+def test_build_project_threads_explicit_mcp_tools(tmp_path):
+    out = build_project_from_statement(
+        "chat assistant", features=["mcp"], mcp_tools=["web_search"],
+        output_dir=str(tmp_path / "mcp-proj"), create_venv=False, overwrite=True,
+    )
+    assert out["mcp_tools"] == ["web_search"]
+    assert any("mcp-server" in step for step in out["next_steps"])

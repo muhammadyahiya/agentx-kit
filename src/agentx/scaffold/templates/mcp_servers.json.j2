@@ -3,5 +3,11 @@
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "./knowledge"],
     "transport": "stdio"
+  }{% if spec.effective_mcp_tools %},
+  "{{ spec.slug }}-tools": {
+    "command": "uv",
+    "args": ["run", "{{ spec.slug }}-mcp-server"],
+    "transport": "stdio"
   }
+{% endif %}
 }

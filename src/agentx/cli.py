@@ -167,6 +167,13 @@ def _result_panel(result, spec: ProjectSpec) -> None:
         "  uv sync" if not result.synced else "  # deps already installed",
         f"  uv run {spec.slug}",
     ]
+    if spec.use_mcp:
+        lines += [
+            "",
+            f"[bold]MCP tools[/] ({', '.join(spec.effective_mcp_tools)}):",
+            f"  uv run {spec.slug}-mcp-server         # run your own MCP server",
+            f"  uv run python -m {spec.package}.mcp.client_demo   # sample client",
+        ]
     console.print(Panel("\n".join(lines), title="AgentX", border_style="cyan"))
 
 
@@ -233,6 +240,11 @@ def new(
     problem: str = typer.Option("", "--problem", help="Problem statement — used to infer the domain."),
     memory: str = typer.Option("none", help="none|short|long|both (with --yes)."),
     mcp: bool = typer.Option(False, help="Include MCP tools (with --yes)."),
+    mcp_tools: str = typer.Option(
+        "", "--mcp-tools",
+        help="Comma-separated subset of web_search,tts,knowledge_research,database for your own "
+             "MCP server (with --yes + --mcp; blank = all four).",
+    ),
     skills: bool = typer.Option(False, help="Include skills registry (with --yes)."),
     subagents: bool = typer.Option(False, help="Attach sub-agents/swarm (with --yes)."),
     voice: bool = typer.Option(False, help="Add voice I/O — STT + TTS (with --yes)."),
@@ -266,7 +278,9 @@ def new(
         spec = ProjectSpec(
             name=name or "my-agent", framework=framework, provider=provider, model=model,
             agents=agent_specs, orchestration=orchestration,
-            use_rag=rag, memory=memory, use_mcp=mcp, use_skills=skills,
+            use_rag=rag, memory=memory, use_mcp=mcp,
+            mcp_tools=[t.strip() for t in mcp_tools.split(",") if t.strip()],
+            use_skills=skills,
             use_subagents=subagents, use_voice=voice, streamlit=streamlit, claw=claw,
             domain=domain, problem_statement=problem,
             prompt_style="custom" if prompt else "default",

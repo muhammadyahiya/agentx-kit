@@ -1,0 +1,35 @@
+"""MCP server exposing {{ spec.slug }}'s built-in tools: {{ spec.effective_mcp_tools | join(', ') }}.
+
+Run it standalone:
+
+    uv run {{ spec.slug }}-mcp-server
+
+Or add it to an MCP client (Claude Desktop, Claude Code, Copilot, Codex):
+
+    claude mcp add {{ spec.slug }}-tools -- uv run {{ spec.slug }}-mcp-server
+
+See ``mcp/client_demo.py`` for a script that connects to this server and calls
+each tool — the same handshake any MCP client performs.
+"""
+from __future__ import annotations
+
+from agentx.tools.mcp_server import build_mcp_server
+
+from ..config import PROJECT_ROOT
+
+mcp = build_mcp_server(
+    name="{{ spec.slug }}-tools",
+    tools={{ spec.effective_mcp_tools }},
+    knowledge_root=PROJECT_ROOT / "knowledge",
+    db_path=PROJECT_ROOT / "data.db",
+    include_examples=True,
+)
+
+
+def main() -> None:
+    """Entry point for the ``{{ spec.slug }}-mcp-server`` console script."""
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()

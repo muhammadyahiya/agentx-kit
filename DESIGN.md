@@ -65,7 +65,7 @@ Both consume the same building blocks so a project can switch frameworks with mi
 
 - **RAG** (`rag/`) — document loaders → `RecursiveCharacterTextSplitter` → vector store (Chroma, or an offline keyword fallback) → retriever. Exposed as a tool.
 - **Memory** (`memory/`) — short-term (windowed buffer) + long-term (persistent JSONL/SQLite) conversation memory.
-- **Tools / MCP** (`tools/`) — `load_mcp_tools(config)` via `langchain-mcp-adapters`; plus built-in tools (web search).
+- **Tools / MCP** (`tools/`) — `load_mcp_tools(config)` via `langchain-mcp-adapters` (client side); plus built-in tools (web search) and `mcp_server.py`, a `build_mcp_server(tools=[...])` factory that turns web search, TTS, local knowledge search, and read-only SQL into a ready-to-run MCP server — usable standalone or bundled into a generated project (`src/<pkg>/mcp/server.py`).
 - **Skills** (`skills/`) — a filesystem-backed skill registry whose instructions are injected into prompts (and optionally exposed as a lookup tool).
 - **Prompts** (`prompts/`) — reusable, override-able prompt templates.
 

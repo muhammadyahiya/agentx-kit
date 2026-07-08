@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "optimumai-static-preview",
+      "runtimeExecutable": "/Users/yahiya/Documents/optimumai/.venv/bin/python",
+      "runtimeArgs": ["-m", "http.server", "8934", "--directory", "/Users/yahiya/Documents/optimumai"],
+      "port": 8934
+    }
+  ]
+}

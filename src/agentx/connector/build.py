@@ -14,11 +14,13 @@ _ALL_FEATURES = ["rag", "memory", "mcp", "skills", "observability", "guardrails"
 _KEY_FILES_MAX = 6000
 
 
-def _apply_features(spec: ProjectSpec, features: list[str]) -> None:
+def _apply_features(spec: ProjectSpec, features: list[str], mcp_tools: list[str] | None = None) -> None:
     fl = set(features or [])
     spec.use_rag = "rag" in fl
     spec.memory = "both" if "memory" in fl else "none"
     spec.use_mcp = "mcp" in fl
+    if spec.use_mcp and mcp_tools:
+        spec.mcp_tools = list(mcp_tools)
     spec.use_skills = "skills" in fl
     spec.observability = "observability" in fl
     spec.guardrails = "guardrails" in fl
@@ -37,6 +39,7 @@ def build_project_from_statement(
     model: str = "",
     agents: int = 0,
     features: list[str] | None = None,
+    mcp_tools: list[str] | None = None,
     enterprise: bool = False,
     output_dir: str = "",
     create_venv: bool = False,
@@ -50,6 +53,7 @@ def build_project_from_statement(
     model = model or rec["model"]
     n_agents = agents or rec["agents"]
     feats = list(features) if features is not None else list(rec["features"])
+    mcp_tool_list = list(mcp_tools) if mcp_tools is not None else list(rec["mcp_tools"])
 
     # First agent carries the role/goal/prompt derived from the problem statement.
     agent_specs = [AgentSpec(name="assistant" if n_agents == 1 else "agent_1",
@@ -64,8 +68,9 @@ def build_project_from_statement(
     if enterprise:
         spec.enable_enterprise()
         feats = _ALL_FEATURES
+        spec.mcp_tools = mcp_tool_list
     else:
-        _apply_features(spec, feats)
+        _apply_features(spec, feats, mcp_tool_list)
 
     target = Path(output_dir).expanduser() if output_dir else Path.cwd() / spec.slug
     result = generate_project(spec, target, overwrite=overwrite)
@@ -96,6 +101,8 @@ def build_project_from_statement(
         "uv venv && uv sync",
         run_cmd,
     ]
+    if spec.use_mcp:
+        next_steps.append(f"uv run {spec.slug}-mcp-server   # your own MCP server ({', '.join(spec.effective_mcp_tools)})")
 
     return {
         "ok": True,
@@ -106,6 +113,7 @@ def build_project_from_statement(
         "model": model or "(provider default)",
         "agents": [a.name for a in agent_specs],
         "features": feats,
+        "mcp_tools": spec.effective_mcp_tools,
         "rationale": rec["rationale"],
         "file_tree": tree,
         "key_files": key_files,

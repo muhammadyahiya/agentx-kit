@@ -56,6 +56,7 @@ def build_server():
         model: str = "",
         agents: int = 0,
         features: list[str] | None = None,
+        mcp_tools: list[str] | None = None,
         enterprise: bool = False,
         output_dir: str = "",
     ) -> dict:
@@ -63,15 +64,19 @@ def build_server():
 
         Leave optional args blank to let AgentX infer them from the problem
         statement. ``features`` may include: rag, memory, mcp, skills,
-        observability, guardrails, serve, docker, ci, evals. Set ``enterprise``
-        true for the full production pack. Returns the target dir, file tree,
-        key file contents, and run steps.
+        observability, guardrails, serve, docker, ci, evals. When ``mcp`` is
+        in ``features`` (or inferred), the project gets its own MCP server;
+        ``mcp_tools`` selects which built-in tools it exposes — any subset of
+        web_search, tts, knowledge_research, database (blank = inferred from
+        the problem statement, or all four). Set ``enterprise`` true for the
+        full production pack. Returns the target dir, file tree, key file
+        contents, and run steps.
         """
         try:
             return build_project_from_statement(
                 problem_statement, name=name, framework=framework, provider=provider,
-                model=model, agents=agents, features=features, enterprise=enterprise,
-                output_dir=output_dir, create_venv=False, overwrite=True,
+                model=model, agents=agents, features=features, mcp_tools=mcp_tools,
+                enterprise=enterprise, output_dir=output_dir, create_venv=False, overwrite=True,
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)}
