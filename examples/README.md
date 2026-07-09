@@ -1,9 +1,9 @@
 # AgentX-Kit demos
 
-Runnable demos to confirm your setup. Demos 1–3 need **no API keys**
-(scaffolding, insights, and the built-in MCP tools are offline/keyless; LLM
-calls are optional). Demo 4 (deep agent) makes real model calls and needs a
-provider key (or a local Ollama model).
+Runnable demos to confirm your setup. Demos 1–3 and 5 need **no API keys**
+(scaffolding, insights, the built-in MCP tools, and the flow visualizer are
+offline/keyless; LLM calls are optional). Demo 4 (deep agent) makes real
+model calls and needs a provider key (or a local Ollama model).
 
 ## 1. Local setup test
 Verifies the install, lists providers, scaffolds a demo project, and exercises
@@ -54,3 +54,13 @@ python examples/deep_agent_demo.py --reflection
 
 Or from the CLI directly: `agentx agent deep "..." --reflection`. Or generate
 a project with a deep agent baked in: `agentx new --yes --agent-mode deep`.
+
+## 5. Flow — see your code as a DAG
+Renders this file's own function-call graph two ways: a static AST call graph
+(no execution) and the real runtime call graph (via `@trace`).
+
+```bash
+python examples/flow_demo.py
+agentx flow examples/flow_demo.py --entry preprocess     # static, via the CLI
+agentx flow examples/flow_demo.py --entry preprocess -f mermaid
+```

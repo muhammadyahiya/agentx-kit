@@ -76,6 +76,13 @@ Both consume the same building blocks so a project can switch frameworks with mi
   `libs/agent_factory.py`).
 - **Skills** (`skills/`) — a filesystem-backed skill registry whose instructions are injected into prompts (and optionally exposed as a lookup tool).
 - **Prompts** (`prompts/`) — reusable, override-able prompt templates.
+- **Flow** (`flow/`) — see any Python file's function-call graph as a DAG. Two
+  views sharing one `Flow` model: `static.py` parses the file with `ast` (no
+  execution, best-effort call resolution like `code2flow`/`pyan`); `tracer.py`
+  provides an async-safe `@trace` decorator that records real call order,
+  counts, and timing during an actual run. Rendered via `render.py`
+  (ascii/mermaid/json/dot). Exposed as `agentx flow <file.py>` (`--live` for
+  the traced view) and the `agentx.flow` library API.
 
 Every capability degrades gracefully: if its extra isn't installed, the feature is disabled with a helpful message rather than crashing.
 
