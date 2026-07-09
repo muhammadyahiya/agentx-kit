@@ -53,6 +53,7 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack) |
 | `agentx providers` | List LLM providers + required env vars |
 | `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
+| `agentx flow <file.py> [--live] [--format ascii\|mermaid\|json\|dot]` | Show any Python file's function-call DAG (static AST, or `--live` runtime trace) |
 | `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
 | `agentx agent run/research/deep` | Run an autonomous, research, or deep agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
@@ -89,6 +90,9 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
   a todo-list planning tool, sandboxed filesystem tools, sub-agent delegation
   (agent-as-tool), and an optional critic/reflection revision loop, the same
   primitives behind LangChain's `deepagents` and Claude Code's own harness.
+- **Flow — code as a DAG** (`agentx flow <file.py>`) — a static AST call graph
+  for any Python file (no execution), or `--live` to run it and see the real
+  call counts + timing via a `@trace` decorator. Export ascii/mermaid/json/dot.
 - **Domain-aware seeding**: name a project `legal-assistant` (or pass `--domain`)
   and it gets an expert system prompt + a seed knowledge base + RAG on.
 - **Dashboard v2**: pick any provider/model, **enter your API key in the UI**,
@@ -354,6 +358,46 @@ agentx agent deep "Audit this repo's error handling and write a report." --refle
 agent mode in the wizard (or `agentx new --yes --agent-mode deep`) and the
 generated `nodes/agent.py` uses `make_deep_agent_node(...)` instead of the
 default chat node, with planning/filesystem/reflection wired per your choices.
+
+## 🕸️ Flow — see your code as a DAG
+Most Python devs understand a project by reading code or a static import
+graph. `agentx flow` builds an actual **function-call DAG** instead — either
+by parsing the file (no execution) or by running it and recording what really
+happened.
+
+```bash
+agentx flow app.py                        # static call graph — no execution, works on any file
+agentx flow app.py --entry train_model    # only the subgraph reachable from one function
+agentx flow app.py -f mermaid             # paste into a .md file / VS Code / GitHub
+agentx flow app.py -f dot > flow.dot && dot -Tsvg flow.dot -o flow.svg
+```
+
+For the *actual* execution graph — real call counts and per-call timing —
+decorate functions with `@trace` and run your code normally, or let the CLI
+run it for you with `--live`:
+
+```python
+from agentx.flow import trace
+
+@trace
+def clean_data(): ...
+
+@trace
+def train(): ...
+
+train()   # each call is recorded — see agentx.flow.get_current_flow()
+```
+```bash
+agentx flow app.py --live   # runs app.py, then renders the REAL execution graph
+```
+
+| Building block | What it does |
+|---|---|
+| `build_static_flow(path, entry=None)` | Parse a file with `ast`, build a function-call graph (best-effort, like `code2flow`/`pyan`) |
+| `trace` / `get_current_flow()` | Decorate functions to record real call order, counts, and timing (async-safe) |
+| `render_ascii` / `render_mermaid` / `render_json` / `render_dot` | One shape, four export formats |
+
+Try it: `python examples/flow_demo.py`.
 
 ## 🧩 Editor & assistant integrations
 The same connector powers ready-made integrations (see [`integrations/`](integrations/)):

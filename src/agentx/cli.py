@@ -223,6 +223,73 @@ def graph(
 
 
 @app.command()
+def flow(
+    path: Path = typer.Argument(..., help="Python file to analyze."),
+    entry: str = typer.Option("", "--entry", "-e", help="Static mode: only the subgraph reachable from this function."),
+    fmt: str = typer.Option("ascii", "--format", "-f", help="ascii | mermaid | json | dot"),
+    external: bool = typer.Option(True, "--external/--no-external", help="Include calls to non-local functions (stdlib/3rd-party)."),
+    live: bool = typer.Option(
+        False, "--live",
+        help="Execute the file and render the ACTUAL runtime call graph (needs @agentx.flow.trace decorators in the target file).",
+    ),
+) -> None:
+    """Show a Python file's function-call flow as a DAG.
+
+    Static mode (default) parses the file with `ast` — nothing is imported or
+    executed, works on any file. Live mode (`--live`) actually runs the file,
+    so any `@agentx.flow.trace`-decorated functions are recorded with real
+    call counts and timing.
+
+    Examples:
+
+        agentx flow app.py                       # static call graph, whole file
+        agentx flow app.py --entry train_model -f mermaid
+        agentx flow app.py --live                 # run it, show the real execution graph
+        agentx flow app.py -f dot > flow.dot && dot -Tsvg flow.dot -o flow.svg
+    """
+    from . import flow as flow_lib
+
+    if not path.exists():
+        console.print(f"[red]File not found:[/] {path}")
+        raise typer.Exit(1)
+
+    if live:
+        flow_lib.reset_trace()
+        import runpy
+
+        try:
+            runpy.run_path(str(path), run_name="__main__")
+        except SystemExit:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Error while running {path}:[/] {exc}")
+            raise typer.Exit(1) from exc
+        graph_result = flow_lib.get_current_flow()
+        if not graph_result.nodes:
+            console.print(
+                "[yellow]No traced calls recorded.[/] Decorate functions with "
+                "`@agentx.flow.trace` in the target file to see them here.\n"
+            )
+    else:
+        try:
+            graph_result = flow_lib.build_static_flow(path, entry=entry or None, include_external=external)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(1) from exc
+
+    fmt = fmt.lower()
+    if fmt == "json":
+        import json as _json
+        console.print_json(_json.dumps(flow_lib.render_json(graph_result)))
+    elif fmt == "mermaid":
+        console.print(flow_lib.render_mermaid(graph_result), markup=False)
+    elif fmt == "dot":
+        console.print(flow_lib.render_dot(graph_result), markup=False)
+    else:
+        console.print(flow_lib.render_ascii(graph_result), markup=False)
+
+
+@app.command()
 def new(
     name: str = typer.Option(None, "--name", "-n", help="Project name."),
     out: Path = typer.Option(None, "--out", "-o", help="Target directory (default ./<name>)."),
