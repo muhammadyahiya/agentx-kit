@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .chroma/
 data/
+{% if spec.agent_mode == "deep" and spec.deep_filesystem %}
+workspace/
+{% endif %}

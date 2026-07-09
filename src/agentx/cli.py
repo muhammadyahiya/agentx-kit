@@ -231,6 +231,10 @@ def new(
     provider: str = typer.Option("openai", help="Provider id (with --yes)."),
     model: str = typer.Option("", help="Model id (with --yes; blank = provider default)."),
     agents: int = typer.Option(1, help="Number of agents (with --yes)."),
+    agent_mode: str = typer.Option("chat", "--agent-mode", help="chat|autonomous|research|deep (with --yes)."),
+    deep_planning: bool = typer.Option(True, "--deep-planning/--no-deep-planning", help="Deep mode: write_todos planning tool (with --yes + --agent-mode deep)."),
+    deep_filesystem: bool = typer.Option(True, "--deep-filesystem/--no-deep-filesystem", help="Deep mode: sandboxed filesystem tools (with --yes + --agent-mode deep)."),
+    deep_reflection: bool = typer.Option(False, "--deep-reflection", help="Deep mode: critic/reflection revision loop (with --yes + --agent-mode deep)."),
     orchestration: str = typer.Option("supervisor", help="supervisor|sequential|parallel — how agents connect (with --yes, only for LangGraph with >1 agents)."),
     prompt: str = typer.Option("", "--prompt", "-p", help="System prompt for the first agent (with --yes)."),
     role: str = typer.Option("Helpful Assistant", help="Role for the first agent (with --yes)."),
@@ -277,7 +281,8 @@ def new(
                 agent_specs.append(AgentSpec(name=a_name))
         spec = ProjectSpec(
             name=name or "my-agent", framework=framework, provider=provider, model=model,
-            agents=agent_specs, orchestration=orchestration,
+            agents=agent_specs, orchestration=orchestration, agent_mode=agent_mode,
+            deep_planning=deep_planning, deep_filesystem=deep_filesystem, deep_reflection=deep_reflection,
             use_rag=rag, memory=memory, use_mcp=mcp,
             mcp_tools=[t.strip() for t in mcp_tools.split(",") if t.strip()],
             use_skills=skills,
@@ -728,10 +733,62 @@ def agent_research(
         raise typer.Exit(1)
 
 
-# Top-level aliases for discoverability — `agentx research …` / `agentx run …`
-# mirror the `agentx agent …` subcommands (a common point of confusion).
+@agent_app.command("deep")
+def agent_deep(
+    goal: str = typer.Argument(..., help="Goal for the deep agent."),
+    provider: str = typer.Option("openai", "--provider", "-p"),
+    model: str = typer.Option("", "--model", "-m"),
+    workspace: Path = typer.Option(Path("./workspace"), "--workspace", "-w"),
+    max_iterations: int = typer.Option(25, "--max-iter"),
+    planning: bool = typer.Option(True, "--planning/--no-planning", help="Give it a write_todos planning tool."),
+    filesystem: bool = typer.Option(True, "--filesystem/--no-filesystem", help="Give it sandboxed file tools."),
+    reflection: bool = typer.Option(False, "--reflection", help="Add a critic/reflection revision loop."),
+    max_revisions: int = typer.Option(2, "--max-revisions"),
+) -> None:
+    """Run a deep agent: planning + filesystem + optional reflection loop.
+
+    Example:
+
+        agentx agent deep "Audit this repo's error handling and write a report."
+    """
+    from .agents import DeepAgent, ReflectionConfig
+
+    console.print(f"[cyan]Deep agent:[/] {goal}")
+    console.print(
+        f"  provider={provider} workspace={workspace} planning={planning} "
+        f"filesystem={filesystem} reflection={reflection}\n"
+    )
+
+    agent = DeepAgent.create(
+        goal=goal, provider=provider, model=model,
+        workspace=str(workspace), max_iterations=max_iterations,
+        use_planning=planning, use_filesystem=filesystem,
+        reflection=ReflectionConfig(enabled=reflection, max_revisions=max_revisions),
+    )
+    result = agent.run()
+    if result.success:
+        console.print(Panel(result.summary[:2000], title="[green]Deep Agent Result[/]", border_style="green"))
+        if result.todos:
+            console.print(f"\nFinal plan ({len(result.todos)} tasks):")
+            for t in result.todos[:10]:
+                console.print(f"  [{t.status}] {t.content}")
+        if result.artifacts:
+            console.print(f"\nArtifacts ({len(result.artifacts)}):")
+            for a in result.artifacts[:10]:
+                console.print(f"  • {a}")
+        if result.revisions:
+            console.print(f"\n[dim]Revisions: {result.revisions}[/]")
+    else:
+        console.print(f"[red]Deep agent failed:[/] {result.error}")
+        raise typer.Exit(1)
+
+
+# Top-level aliases for discoverability — `agentx research …` / `agentx run …` /
+# `agentx deep …` mirror the `agentx agent …` subcommands (a common point of
+# confusion).
 app.command("research")(agent_research)
 app.command("run")(agent_run)
+app.command("deep")(agent_deep)
 
 
 if __name__ == "__main__":

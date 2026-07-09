@@ -18,6 +18,7 @@ _AGENT_MODES = [
     ("Chat  — interactive REPL / API (default)", "chat"),
     ("Autonomous  — goal-directed agent that plans and acts independently", "autonomous"),
     ("Research  — multi-step web research with citations and report generation", "research"),
+    ("Deep  — planning (todo-list), filesystem, sub-agent delegation, optional reflection", "deep"),
 ]
 _VECTOR_STORES = [
     ("Chroma  — persistent, server-less, easy setup (default)", "chroma"),
@@ -164,6 +165,19 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         "Attach sub-agents (swarm) each agent can delegate tasks to?", default=False
     ).ask()
 
+    # Deep agent mode — planning / filesystem / reflection toggles.
+    deep_planning = deep_filesystem = deep_reflection = False
+    if agent_mode == "deep":
+        deep_planning = questionary.confirm(
+            "  • Give it a write_todos planning tool (recommended)?", default=True
+        ).ask()
+        deep_filesystem = questionary.confirm(
+            "  • Give it sandboxed filesystem tools (read/write/edit/list)?", default=True
+        ).ask()
+        deep_reflection = questionary.confirm(
+            "  • Add a critic/reflection revision loop before the final answer?", default=False
+        ).ask()
+
     # Voice I/O — speech-to-text + text-to-speech (local-first, keyless).
     use_voice = questionary.confirm(
         "Add voice I/O (speech-to-text + text-to-speech)?", default=False
@@ -217,6 +231,9 @@ def run_wizard(name: str | None = None) -> ProjectSpec | None:
         mcp_tools=list(mcp_tools),
         use_skills=bool(use_skills),
         use_subagents=bool(use_subagents),
+        deep_planning=bool(deep_planning),
+        deep_filesystem=bool(deep_filesystem),
+        deep_reflection=bool(deep_reflection),
         use_voice=bool(use_voice),
         streamlit=bool(streamlit_ui),
         claw=bool(claw),
