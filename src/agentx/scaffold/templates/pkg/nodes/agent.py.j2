@@ -7,7 +7,11 @@ tools are built lazily on first call (see ``libs/agent_factory.py``).
 """
 from __future__ import annotations
 
+{% if spec.agent_mode == "deep" %}
+from ..libs.agent_factory import make_deep_agent_node
+{% else %}
 from ..libs.agent_factory import make_call_model
+{% endif %}
 from ..prompts import resolved_system_prompts
 from ..prompts.{{ agent.name if agent else "assistant" }} import SYSTEM_PROMPT as _DEFAULT_SYSTEM_PROMPT
 
@@ -18,7 +22,12 @@ NAME = "{{ agent.name if agent else "assistant" }}"
 _resolved = resolved_system_prompts()
 SYSTEM_PROMPT = _resolved.get(NAME) or next(iter(_resolved.values()), None) or _DEFAULT_SYSTEM_PROMPT
 
+{% if spec.agent_mode == "deep" %}
+#: The LangGraph node callable — a deep agent (planning/filesystem/reflection).
+call_model = make_deep_agent_node(SYSTEM_PROMPT)
+{% else %}
 #: The LangGraph node callable (LLM turn; the graph wires it to a ToolNode).
 call_model = make_call_model(SYSTEM_PROMPT)
+{% endif %}
 
 __all__ = ["NAME", "SYSTEM_PROMPT", "call_model"]

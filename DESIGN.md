@@ -66,6 +66,14 @@ Both consume the same building blocks so a project can switch frameworks with mi
 - **RAG** (`rag/`) — document loaders → `RecursiveCharacterTextSplitter` → vector store (Chroma, or an offline keyword fallback) → retriever. Exposed as a tool.
 - **Memory** (`memory/`) — short-term (windowed buffer) + long-term (persistent JSONL/SQLite) conversation memory.
 - **Tools / MCP** (`tools/`) — `load_mcp_tools(config)` via `langchain-mcp-adapters` (client side); plus built-in tools (web search) and `mcp_server.py`, a `build_mcp_server(tools=[...])` factory that turns web search, TTS, local knowledge search, and read-only SQL into a ready-to-run MCP server — usable standalone or bundled into a generated project (`src/<pkg>/mcp/server.py`).
+- **Deep agents** (`agents/deep_agent.py`) — planning (`write_todos`), sandboxed
+  filesystem tools, sub-agent delegation (`SubAgentSpec` + a `task` dispatcher
+  tool, agent-as-tool with isolated context), a critic/reflection revision loop,
+  and message compaction — the same primitives behind LangChain's `deepagents`
+  and Claude Code's own harness. Exposed as `agentx.agents.DeepAgent`
+  (standalone), `agentx agent deep` (CLI), and `agent_mode="deep"` in the
+  scaffolder (renders `make_deep_agent_node(...)` into the generated project's
+  `libs/agent_factory.py`).
 - **Skills** (`skills/`) — a filesystem-backed skill registry whose instructions are injected into prompts (and optionally exposed as a lookup tool).
 - **Prompts** (`prompts/`) — reusable, override-able prompt templates.
 

@@ -15,7 +15,7 @@ Framework = Literal["langgraph", "crewai"]
 MemoryMode = Literal["none", "short", "long", "both"]
 PromptStyle = Literal["default", "custom"]
 VectorStoreBackend = Literal["chroma", "faiss", "memory"]
-AgentMode = Literal["chat", "autonomous", "research"]
+AgentMode = Literal["chat", "autonomous", "research", "deep"]
 
 # How multiple agents are wired together (LangGraph only; CrewAI always uses sequential crew).
 #   supervisor  — an LLM router decides which worker acts next (dynamic, context-aware)
@@ -59,7 +59,11 @@ class ProjectSpec(BaseModel):
     use_rag: bool = False
     vector_store: VectorStoreBackend = "chroma"
     embedding_provider: str = ""     # blank → auto-detect (HF local → OpenAI → Ollama)
-    agent_mode: AgentMode = "chat"   # chat | autonomous | research
+    agent_mode: AgentMode = "chat"   # chat | autonomous | research | deep
+    # ----- deep agent mode (agent_mode == "deep") -----
+    deep_planning: bool = True      # give the agent a write_todos planning tool
+    deep_filesystem: bool = True    # give the agent sandboxed read/write/edit/list file tools
+    deep_reflection: bool = False   # add a critic/reflection revision loop after the draft answer
     # Domain seeding: "" = auto-infer from name/problem_statement; "none" = force
     # generic; else an explicit domain key (legal, medical, finance, …).
     domain: str = ""

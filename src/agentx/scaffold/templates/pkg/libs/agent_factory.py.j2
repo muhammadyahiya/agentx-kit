@@ -6,6 +6,8 @@ Shared builders that keep every node module (``nodes/*.py``) thin and consistent
   it to a ``ToolNode`` via ``tools_condition``).
 * :func:`make_worker` — a worker node backed by a full ReAct sub-graph so its
   tools (web{% if spec.use_rag %}, knowledge base{% endif %}{% if spec.use_mcp %}, MCP{% endif %}{% if use_subagents %}, sub-agents{% endif %}) actually execute.
+{% if spec.agent_mode == "deep" %}* :func:`make_deep_agent_node` — a deep-agent node: planning{% if spec.deep_planning %} (write_todos){% endif %}, filesystem{% if spec.deep_filesystem %} (read/write/edit/list, sandboxed to ``PROJECT_ROOT / "workspace"``){% endif %}{% if spec.deep_reflection %}, and a critic/reflection revision loop{% endif %} on top of the same tools as ``make_worker``.
+{% endif %}
 
 Both are **lazy**: the model, tools, RAG index, MCP sessions and sub-agents are
 built on the node's first invocation (then cached), never at import time. This
@@ -148,5 +150,100 @@ def make_worker(name: str, system_prompt: str) -> NodeFn:
 
     return worker
 
+{% if spec.agent_mode == "deep" %}
 
-__all__ = ["make_call_model", "make_worker", "NodeFn"]
+def make_deep_agent_node(system_prompt: str) -> NodeFn:
+    """Build the deep-agent node: planning{% if spec.deep_planning %} (write_todos){% endif %}, filesystem{% if spec.deep_filesystem %} tools{% endif %}{% if spec.deep_reflection %}, and a critic/reflection loop{% endif %} on top of ``get_tools()``.
+
+    Returns:
+        An async LangGraph node. The underlying ReAct agent (model + tools) is
+        constructed on first call and cached — never at import time.
+    """
+    from agentx.agents.deep_agent import (
+{% if spec.deep_filesystem %}
+        make_filesystem_tools,
+{% endif %}
+{% if spec.deep_planning %}
+        make_planning_tool,
+{% endif %}
+{% if spec.deep_reflection %}
+        ReflectionConfig,
+        run_with_reflection,
+{% endif %}
+    )
+{% if spec.deep_filesystem or spec.deep_reflection %}
+    from ..config import (
+{% if spec.deep_filesystem %}
+        PROJECT_ROOT,
+{% endif %}
+{% if spec.deep_reflection %}
+        MODEL,
+        PROVIDER,
+{% endif %}
+    )
+{% endif %}
+
+    cache: dict[str, object] = {}
+
+    def _agent():
+        if "agent" not in cache:
+            from langgraph.prebuilt import create_react_agent
+
+            tools = list(get_tools())
+{% if spec.deep_planning %}
+            planning_tool, _ = make_planning_tool()
+            tools.append(planning_tool)
+{% endif %}
+{% if spec.deep_filesystem %}
+            tools.extend(make_filesystem_tools(PROJECT_ROOT / "workspace"))
+{% endif %}
+            cache["agent"] = create_react_agent(
+                build_model(bind_tools=False),
+                tools,
+                prompt=system_prompt,
+                post_model_hook=tool_call_coercion_hook(tools),
+            )
+        return cache["agent"]
+
+    async def deep_agent_node(state: AgentState) -> dict:
+        try:
+{% if spec.deep_reflection %}
+            messages, revisions = await run_with_reflection(
+                _agent(), list(state["messages"]),
+                provider=PROVIDER, model=MODEL,
+                reflection=ReflectionConfig(enabled=True, max_revisions=2),
+                recursion_limit=40,
+            )
+            if revisions:
+                logger.info("deep agent used %d revision(s)", revisions)
+{% else %}
+            result = await _agent().ainvoke(
+                {"messages": state["messages"]}, config={"recursion_limit": 40}
+            )
+            messages = result.get("messages", [])
+{% endif %}
+            content = _last_text(messages)
+            if content and parse_json_tool_call(content) is not None:
+                try:
+                    followup = await build_model(bind_tools=False).ainvoke(
+                        [SystemMessage(system_prompt)]
+                        + list(state["messages"])
+                        + [{"role": "user", "content": (
+                            "Answer the request directly, in plain language. "
+                            "Do NOT output JSON or a tool call."
+                        )}]
+                    )
+                    content = followup.content or content
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("deep agent prose re-prompt failed: %s", exc)
+            content = content or "(deep agent produced no output)"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("deep agent node failed")
+            content = f"Sorry, I hit an error: {exc}"
+        return {"messages": [AIMessage(content=content)]}
+
+    return deep_agent_node
+{% endif %}
+
+
+__all__ = ["make_call_model", "make_worker", "NodeFn"{% if spec.agent_mode == "deep" %}, "make_deep_agent_node"{% endif %}]

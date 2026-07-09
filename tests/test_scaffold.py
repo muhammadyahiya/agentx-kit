@@ -237,3 +237,54 @@ def test_generate_mcp_tools_subset(tmp_path):
 def test_extras_add_voice_when_tts_tool_selected():
     s = _spec(use_mcp=True, mcp_tools=["tts"])
     assert "voice" in _extras(s)
+
+
+def test_deep_agent_mode_generates_deep_node(tmp_path):
+    s = _spec(
+        name="deep-bot", agent_mode="deep",
+        deep_planning=True, deep_filesystem=True, deep_reflection=True,
+    )
+    result = generate_project(s, tmp_path / "deepbot", overwrite=True)
+    root = result.target_dir
+    node_src = (root / "src/deep_bot/nodes/agent.py").read_text()
+    assert "make_deep_agent_node" in node_src and "make_call_model" not in node_src
+    factory_src = (root / "src/deep_bot/libs/agent_factory.py").read_text()
+    assert "make_deep_agent_node" in factory_src
+    assert "make_planning_tool" in factory_src
+    assert "make_filesystem_tools" in factory_src
+    assert "run_with_reflection" in factory_src and "ReflectionConfig" in factory_src
+    gitignore = (root / ".gitignore").read_text()
+    assert "workspace/" in gitignore
+    import json
+    manifest = json.loads((root / "agentx.json").read_text())
+    assert manifest["features"]["agent_mode"] == "deep"
+    assert manifest["features"]["deep_planning"] is True
+    assert manifest["features"]["deep_filesystem"] is True
+    assert manifest["features"]["deep_reflection"] is True
+    _compile_tree(root)
+
+
+def test_deep_agent_mode_planning_only(tmp_path):
+    s = _spec(
+        name="deep-lite", agent_mode="deep",
+        deep_planning=True, deep_filesystem=False, deep_reflection=False,
+    )
+    result = generate_project(s, tmp_path / "deeplite", overwrite=True)
+    root = result.target_dir
+    factory_src = (root / "src/deep_lite/libs/agent_factory.py").read_text()
+    assert "make_planning_tool" in factory_src
+    assert "make_filesystem_tools" not in factory_src
+    assert "run_with_reflection" not in factory_src
+    gitignore = (root / ".gitignore").read_text()
+    assert "workspace/" not in gitignore
+    _compile_tree(root)
+
+
+def test_chat_mode_unaffected_by_deep_agent_feature(tmp_path):
+    s = _spec(name="chat-bot")
+    root = generate_project(s, tmp_path / "chatbot", overwrite=True).target_dir
+    node_src = (root / "src/chat_bot/nodes/agent.py").read_text()
+    assert "make_call_model" in node_src and "make_deep_agent_node" not in node_src
+    factory_src = (root / "src/chat_bot/libs/agent_factory.py").read_text()
+    assert "make_deep_agent_node" not in factory_src
+    _compile_tree(root)

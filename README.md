@@ -54,7 +54,7 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | `agentx providers` | List LLM providers + required env vars |
 | `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
 | `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
-| `agentx agent run/research` | Run an autonomous or research agent |
+| `agentx agent run/research/deep` | Run an autonomous, research, or deep agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
 | `agentx dashboard` | Prompt observability, optimization & eval UI (`[dashboard]` extra) |
 | `agentx cache stats / clear` | Inspect/clear the LLM response cache |
@@ -85,6 +85,10 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
   PDF / Excel / CSV / Word / Markdown, and incremental re-index via a manifest.
 - **Autonomous & research agents** (`agentx agent …`, or `agentx run` / `agentx
   research`) — sandboxed file tools, web search, citations.
+- **Deep agents** (`agentx agent deep`, or `agent_mode="deep"` in the wizard) —
+  a todo-list planning tool, sandboxed filesystem tools, sub-agent delegation
+  (agent-as-tool), and an optional critic/reflection revision loop, the same
+  primitives behind LangChain's `deepagents` and Claude Code's own harness.
 - **Domain-aware seeding**: name a project `legal-assistant` (or pass `--domain`)
   and it gets an expert system prompt + a seed knowledge base + RAG on.
 - **Dashboard v2**: pick any provider/model, **enter your API key in the UI**,
@@ -310,6 +314,46 @@ call these tools too:
 uv run my-bot-mcp-server                        # run your generated MCP server
 uv run python -m my_bot.mcp.client_demo          # sample client
 ```
+
+## 🧠 Deep agents (planning · filesystem · sub-agents · reflection)
+AgentX-Kit ships the same primitives behind LangChain's `deepagents` and
+Claude Code's own coding harness — usable directly as a library, via the CLI,
+or baked into a generated project.
+
+```python
+from agentx.agents import DeepAgent, SubAgentSpec, ReflectionConfig
+
+agent = DeepAgent.create(
+    goal="Audit this repo's error handling and write a report.",
+    provider="openai",
+    workspace="./workspace",
+    subagents=[
+        SubAgentSpec(name="reviewer", description="Reviews code for bugs.",
+                     prompt="You are a meticulous code reviewer."),
+    ],
+    reflection=ReflectionConfig(enabled=True, max_revisions=2),
+)
+result = agent.run()
+print(result.summary)
+```
+
+| Building block | What it does |
+|---|---|
+| `make_planning_tool()` | A no-op `write_todos` tool — forces an explicit, visible task list |
+| `make_filesystem_tools(workspace)` | Sandboxed `read_file`/`write_file`/`edit_file`/`list_files` |
+| `SubAgentSpec` + `build_subagent_dispatcher(...)` | A single `task` tool that delegates to named specialist sub-agents (agent-as-tool, isolated context) |
+| `ReflectionConfig` + `run_with_reflection(...)` | An optional critic pass that requests revisions before returning |
+| `compact_messages(...)` | Summarise older messages once the transcript exceeds a token budget |
+
+From the CLI:
+```bash
+agentx agent deep "Audit this repo's error handling and write a report." --reflection
+```
+
+**Or generate a project with a deep agent baked in** — pick "Deep" as the
+agent mode in the wizard (or `agentx new --yes --agent-mode deep`) and the
+generated `nodes/agent.py` uses `make_deep_agent_node(...)` instead of the
+default chat node, with planning/filesystem/reflection wired per your choices.
 
 ## 🧩 Editor & assistant integrations
 The same connector powers ready-made integrations (see [`integrations/`](integrations/)):
