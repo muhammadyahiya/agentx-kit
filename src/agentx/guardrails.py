@@ -21,7 +21,6 @@ _PII_PATTERNS = {
 class GuardrailError(ValueError):
     """Raised by a guard when input/output is rejected outright."""
 
-
 @dataclass
 class GuardResult:
     text: str
