@@ -226,11 +226,122 @@ def graph(
 
 
 @app.command()
+def validate(
+    project: Path = typer.Option(None, "--project", "-p", help="Project dir (auto-detects agentx.json)."),
+) -> None:
+    """Validate a generated project's agentx.json for structural correctness.
+
+    Checks required fields, that framework/provider/agent_mode/orchestration/
+    memory are recognized values, that mcp_tools are known tool names, and
+    cross-checks against sibling files (pyproject.toml, prompts.json,
+    .env.example) for a few common drifts. Exits 1 if any error-level finding
+    is present (warnings alone still exit 0).
+    """
+    from .scaffold import graphviz
+    from .scaffold.validate import validate_manifest
+
+    try:
+        root, manifest = graphviz.load_manifest(project)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    findings = validate_manifest(root, manifest)
+    if not findings:
+        console.print(f"[green]✓[/] {root / 'agentx.json'} looks valid — no issues found.")
+        return
+
+    table = Table(title=f"agentx validate — {root.name}")
+    table.add_column("level", no_wrap=True)
+    table.add_column("message", overflow="fold")
+    for f in findings:
+        style = "red" if f.level == "error" else "yellow"
+        table.add_row(f"[{style}]{f.level}[/]", f.message)
+    console.print(table)
+
+    error_count = sum(1 for f in findings if f.level == "error")
+    warning_count = len(findings) - error_count
+    console.print(f"\n{error_count} error(s), {warning_count} warning(s).")
+    if error_count:
+        raise typer.Exit(1)
+
+
+@app.command()
+def upgrade(
+    project: Path = typer.Option(None, "--project", "-p", help="Project dir (auto-detects agentx.json)."),
+    apply: bool = typer.Option(False, "--apply", help="Write the changes (default: dry-run, only shows the plan)."),
+    force: bool = typer.Option(
+        False, "--force",
+        help="With --apply, also overwrite prompts.json/knowledge/data — normally left alone since they're "
+             "meant to be hand/CLI-edited, not regenerated.",
+    ),
+) -> None:
+    """Re-run the current agentx-kit's templates over an existing project and show what changed.
+
+    Rebuilds the project spec from agentx.json (+ prompts.json for each
+    agent's role/goal/prompt), regenerates every templated file with the
+    installed agentx-kit version's templates, and diffs it against your live
+    project. Dry-run by default — pass --apply to write. Useful after
+    upgrading agentx-kit to pick up template fixes/improvements in an
+    already-generated project.
+    """
+    import shutil
+
+    from .scaffold import graphviz
+    from .scaffold.upgrade import apply_upgrade, plan_upgrade
+
+    try:
+        root, manifest = graphviz.load_manifest(project)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    with console.status("[bold]Regenerating with the current templates...[/]"):
+        staging_target, entries = plan_upgrade(root, manifest)
+
+    try:
+        if not entries:
+            console.print("[green]✓[/] Already up to date — nothing would change.")
+            return
+
+        table = Table(title=f"agentx upgrade — {root.name}{'  (dry run)' if not apply else ''}")
+        table.add_column("status", no_wrap=True)
+        table.add_column("file")
+        for e in entries:
+            style = {"new": "green", "changed": "yellow", "protected": "dim"}[e.status]
+            label = e.status if e.status != "protected" else "protected (skipped)"
+            table.add_row(f"[{style}]{label}[/]", e.relative_path)
+        console.print(table)
+
+        if not apply:
+            console.print(
+                f"\n[dim]Dry run — {len(entries)} file(s) would change. Pass --apply to write them.[/]"
+            )
+            return
+
+        written = apply_upgrade(root, staging_target, entries, force=force)
+        console.print(f"\n[green]✓[/] Wrote {len(written)} file(s).")
+        skipped = [e for e in entries if e.status == "protected"] if not force else []
+        if skipped:
+            console.print(
+                f"[dim]Skipped {len(skipped)} protected file(s) (prompts.json/knowledge/data) — "
+                "pass --force to overwrite those too.[/]"
+            )
+    finally:
+        shutil.rmtree(staging_target.parent, ignore_errors=True)
+
+
+@app.command()
 def flow(
     path: Path = typer.Argument(Path("."), help="Python file or directory to analyze (default: current directory)."),
     entry: str = typer.Option("", "--entry", "-e", help="Static mode: only the subgraph reachable from this function."),
     fmt: str = typer.Option("ascii", "--format", "-f", help="ascii | mermaid | json | dot"),
     external: bool = typer.Option(True, "--external/--no-external", help="Include calls to non-local functions (stdlib/3rd-party)."),
+    max_files: int = typer.Option(
+        20000, "--max-files",
+        help="Whole-project mode only: abort with an error instead of scanning more than this many .py files "
+             "(guards against accidentally pointing at a huge/unrelated directory).",
+    ),
     live: bool = typer.Option(
         False, "--live",
         help="Execute the file and render the ACTUAL runtime call graph (needs @agentx.flow.trace decorators in the target file). Single file only.",
@@ -238,6 +349,11 @@ def flow(
     ui: bool = typer.Option(False, "--ui", help="Open an interactive 2D/3D DAG viewer in your browser instead of printing text."),
     out: Path = typer.Option(None, "--out", "-o", help="With --ui, write the viewer HTML here instead of a temp file."),
     no_open: bool = typer.Option(False, "--no-open", help="With --ui, write the viewer file but don't launch a browser."),
+    cdn: bool = typer.Option(
+        False, "--cdn",
+        help="With --ui, reference the 2D/3D graph libraries via CDN instead of inlining ~2MB of JS "
+             "(smaller file, but needs network access to view; default stays fully offline-capable).",
+    ),
     typecheck: bool = typer.Option(
         False, "--typecheck",
         help="Run ruff (lint) + ty (type check) and attach diagnostics to nodes (requires `agentx-kit[typecheck]`).",
@@ -310,10 +426,17 @@ def flow(
                 "[yellow]No traced calls recorded.[/] Decorate functions with "
                 "`@agentx.flow.trace` in the target file to see them here.\n"
             )
+            # Nonzero so CI/scripts can detect a misconfigured --live run
+            # (missing @trace decorators, or a target that never calls any)
+            # instead of silently reporting success on an empty graph.
+            raise typer.Exit(1)
     else:
         try:
             if path.is_dir():
-                graph_result = flow_lib.build_project_flow(path, entry=entry or None, include_external=external)
+                with console.status("[bold]Scanning project…[/]"):
+                    graph_result = flow_lib.build_project_flow(
+                        path, entry=entry or None, include_external=external, max_files=max_files,
+                    )
             else:
                 graph_result = flow_lib.build_static_flow(path, entry=entry or None, include_external=external)
         except ValueError as exc:
@@ -389,7 +512,7 @@ def flow(
         import tempfile
         import webbrowser
 
-        html = flow_lib.render_html(graph_result, diagnostics=diagnostics)
+        html = flow_lib.render_html(graph_result, diagnostics=diagnostics, cdn=cdn)
         if out:
             out.write_text(html, encoding="utf-8")
             out_path = out
@@ -405,19 +528,22 @@ def flow(
         return
 
     fmt = fmt.lower()
-    if fmt == "json":
+    renderer = flow_lib.get_renderer(fmt)
+    if renderer is None:
+        console.print(
+            f"[red]Unknown format {fmt!r}.[/] Available: {', '.join(flow_lib.available_renderers())}"
+        )
+        raise typer.Exit(1)
+    result = renderer(graph_result)
+    if isinstance(result, dict):
         import json as _json
-        console.print_json(_json.dumps(flow_lib.render_json(graph_result)))
-    elif fmt == "mermaid":
-        console.print(flow_lib.render_mermaid(graph_result), markup=False, soft_wrap=True)
-    elif fmt == "dot":
-        console.print(flow_lib.render_dot(graph_result), markup=False, soft_wrap=True)
+        console.print_json(_json.dumps(result))
     else:
         # soft_wrap: a real project's tree can have deeply-nested, long
         # module.Class.method names — Rich's default word-wrap would reflow
         # those lines mid-branch instead of letting them extend past the
         # visible terminal width like `tree`/`ls` output does.
-        console.print(flow_lib.render_ascii(graph_result), markup=False, soft_wrap=True)
+        console.print(result, markup=False, soft_wrap=True)
 
 
 @app.command()
@@ -462,8 +588,23 @@ def new(
     no_venv: bool = typer.Option(False, "--no-venv", help="Do not create a .venv."),
     sync: bool = typer.Option(False, "--sync", help="Run `uv sync` after generating."),
     overwrite: bool = typer.Option(False, help="Overwrite a non-empty target directory."),
+    list_frameworks: bool = typer.Option(False, "--list-frameworks", help="Print valid --framework choices and exit."),
+    list_providers: bool = typer.Option(False, "--list-providers", help="Print valid --provider ids and exit."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the human-readable result panel (for CI/scripts)."),
+    json_output: bool = typer.Option(
+        False, "--json",
+        help="Print a one-line JSON summary instead of the Rich panel (for CI/tooling; implies --quiet).",
+    ),
 ) -> None:
     """Scaffold a new agentic project (interactive by default)."""
+    if list_frameworks:
+        for fw in ("langgraph", "crewai"):
+            console.print(fw)
+        return
+    if list_providers:
+        for s in all_specs():
+            console.print(s.id)
+        return
     if yes:
         try:
             get_spec(provider)
@@ -509,9 +650,25 @@ def new(
     try:
         result = generate_project(spec, target, overwrite=overwrite)
     except FileExistsError as exc:
-        console.print(f"[red]{exc}[/]")
+        if json_output:
+            import json as _json
+            console.print_json(_json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
-    _result_panel(result, spec)
+
+    if json_output:
+        import json as _json
+        console.print_json(_json.dumps({
+            "ok": True,
+            "name": spec.slug,
+            "target_dir": str(result.target_dir),
+            "files": [str(f) for f in result.files],
+            "venv_created": result.venv_created,
+            "synced": result.synced,
+        }))
+    elif not quiet:
+        _result_panel(result, spec)
 
 
 # --------------------------------------------------------------------------- #

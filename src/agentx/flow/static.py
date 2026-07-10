@@ -14,24 +14,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from ._ast_helpers import CallCollector, subgraph_from
 from .model import Flow
-
-
-def _call_name(node: ast.expr) -> str | None:
-    """Best-effort dotted name for a call target, e.g. ``pd.read_csv`` or ``clean``."""
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        parts = [node.attr]
-        cur: ast.expr = node.value
-        while isinstance(cur, ast.Attribute):
-            parts.append(cur.attr)
-            cur = cur.value
-        if isinstance(cur, ast.Name):
-            parts.append(cur.id)
-            return ".".join(reversed(parts))
-        return node.attr   # base isn't a simple name (e.g. a call result) — use the method name
-    return None
 
 
 class _FunctionCollector(ast.NodeVisitor):
@@ -55,47 +39,6 @@ class _FunctionCollector(ast.NodeVisitor):
 
     visit_FunctionDef = _visit_func
     visit_AsyncFunctionDef = _visit_func
-
-
-class _CallCollector(ast.NodeVisitor):
-    """Pass 2: collect call sites within one function's body, in source order."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def visit_Call(self, node: ast.Call) -> None:
-        name = _call_name(node.func)
-        if name:
-            self.calls.append(name)
-        self.generic_visit(node)
-
-    def _skip_nested_def(self, node: ast.AST) -> None:
-        # Nested function/class defs are collected as their own nodes by
-        # _FunctionCollector and get their own _CallCollector pass — recursing
-        # into them here would double-attribute their calls to the enclosing
-        # function too (e.g. a call inside `def inner()` would wrongly also
-        # show up as a call made by `outer`).
-        pass
-
-    visit_FunctionDef = _skip_nested_def
-    visit_AsyncFunctionDef = _skip_nested_def
-    visit_ClassDef = _skip_nested_def
-
-
-def _subgraph_from(flow: Flow, start: str) -> Flow:
-    """BFS from ``start`` following outgoing edges; return the reachable subgraph."""
-    reachable = {start}
-    frontier = [start]
-    while frontier:
-        cur = frontier.pop()
-        for name in flow.successors(cur):
-            if name not in reachable:
-                reachable.add(name)
-                frontier.append(name)
-    sub = Flow(kind=flow.kind, entry=start)
-    sub.nodes = {name: flow.nodes[name] for name in reachable if name in flow.nodes}
-    sub.edges = [e for e in flow.edges if e.src in reachable and e.dst in reachable]
-    return sub
 
 
 def build_static_flow(path: str | Path, *, entry: str | None = None, include_external: bool = True) -> Flow:
@@ -148,7 +91,7 @@ def build_static_flow(path: str | Path, *, entry: str | None = None, include_ext
         flow.add_node(qual, file=str(p), lineno=getattr(node, "lineno", None))
 
     for qual, node in collector.functions.items():
-        calls = _CallCollector()
+        calls = CallCollector()
         for stmt in node.body:
             calls.visit(stmt)
         for called in calls.calls:
@@ -161,7 +104,7 @@ def build_static_flow(path: str | Path, *, entry: str | None = None, include_ext
 
     # Module-level calls (outside any function/class) — captures the
     # `if __name__ == "__main__": main()` entry-point pattern.
-    module_calls = _CallCollector()
+    module_calls = CallCollector()
     for stmt in tree.body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
@@ -183,7 +126,7 @@ def build_static_flow(path: str | Path, *, entry: str | None = None, include_ext
         target = entry if entry in flow.nodes else bare_to_qual.get(entry)
         if target is None:
             raise ValueError(f"Function {entry!r} not found in {p}")
-        return _subgraph_from(flow, target)
+        return subgraph_from(flow, target)
 
     flow.entry = inferred_entry
     return flow

@@ -179,3 +179,41 @@ def test_unknown_entry_raises(tmp_path: Path) -> None:
     pkg = _make_pkg(tmp_path)
     with pytest.raises(ValueError, match="not found"):
         build_project_flow(pkg, entry="does_not_exist")
+
+
+def test_max_files_guard_raises_before_scanning(tmp_path: Path) -> None:
+    pkg = _make_pkg(tmp_path)
+    with pytest.raises(ValueError, match="max_files"):
+        build_project_flow(pkg, max_files=1)
+
+
+def test_star_import_warns_but_does_not_crash(tmp_path: Path) -> None:
+    _write(tmp_path, "pkg_star/__init__.py", "")
+    _write(tmp_path, "pkg_star/helpers.py", "def helper():\n    pass\n")
+    _write(tmp_path, "pkg_star/main.py", """
+from .helpers import *
+
+def use():
+    helper()
+""")
+    with pytest.warns(UserWarning, match="import \\*"):
+        flow = build_project_flow(tmp_path)
+    assert "pkg_star.main.use" in flow.nodes
+
+
+def test_circular_import_between_two_modules_warns(tmp_path: Path) -> None:
+    _write(tmp_path, "pkg_cycle/__init__.py", "")
+    _write(tmp_path, "pkg_cycle/a.py", """
+from .b import bar
+
+def foo():
+    bar()
+""")
+    _write(tmp_path, "pkg_cycle/b.py", """
+from .a import foo
+
+def bar():
+    pass
+""")
+    with pytest.warns(UserWarning, match="Circular import"):
+        build_project_flow(tmp_path)
