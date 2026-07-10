@@ -127,14 +127,42 @@ def test_custom_command_runs_and_streams_stdout(tmp_path: Path) -> None:
     assert events[-1] == {"type": "done", "exit_code": 0, "ts": events[-1]["ts"]}
 
 
-def test_custom_command_bad_syntax_returns_400(tmp_path: Path) -> None:
+def test_custom_command_bad_syntax_is_shell_error_not_a_500(tmp_path: Path) -> None:
+    # Arbitrary commands run through a real shell (cross-platform quoting,
+    # `&&`, pipes) — so malformed syntax is the *shell's* problem, surfaced as
+    # normal stderr output and a nonzero exit code, not a Python-level 400/500.
     p = _write(tmp_path, "def a():\n    pass\n")
     app = build_app(build_static_flow(p), p)
     client = TestClient(app)
     token = _token(client)
 
-    resp = client.post(f"/api/run?token={token}", json={"command": "python3 -c \"unterminated"})
-    assert resp.status_code == 400
+    run_id = client.post(
+        f"/api/run?token={token}", json={"command": 'python3 -c "unterminated'},
+    ).json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        assert resp.status_code == 200
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+    assert events[-1]["type"] == "done"
+    assert events[-1]["exit_code"] != 0
+
+
+def test_unknown_command_reports_not_found_without_crashing(tmp_path: Path) -> None:
+    # The exact bug this fixes: a mistyped/missing command (e.g. "streamline"
+    # instead of "streamlit") used to raise an uncaught FileNotFoundError,
+    # crashing the whole ASGI request with a 500. It must now behave like a
+    # real shell: print its own "not found" error and exit nonzero.
+    p = _write(tmp_path, "def a():\n    pass\n")
+    app = build_app(build_static_flow(p), p)
+    client = TestClient(app)
+    token = _token(client)
+
+    resp = client.post(f"/api/run?token={token}", json={"command": "definitely_not_a_real_command_xyz"})
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+    assert events[-1]["type"] == "done"
+    assert events[-1]["exit_code"] != 0
 
 
 def test_terminal_python_command_for_package_file_resolves_relative_imports(tmp_path: Path) -> None:
