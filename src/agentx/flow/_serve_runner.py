@@ -34,7 +34,10 @@ def main(path: str) -> None:
     try:
         run_target(path)
     except SystemExit:
-        pass
+        # Let it propagate to the interpreter unchanged — sys.exit(1)/sys.exit("msg")
+        # in the target script must produce a nonzero subprocess exit code so the
+        # browser's "Run" result reflects the real outcome instead of always "done".
+        raise
     except Exception as exc:  # noqa: BLE001 — reported to the browser, not swallowed
         _emit({"type": "error", "message": str(exc), "ts": time.time()})
         raise

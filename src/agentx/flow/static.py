@@ -69,6 +69,18 @@ class _CallCollector(ast.NodeVisitor):
             self.calls.append(name)
         self.generic_visit(node)
 
+    def _skip_nested_def(self, node: ast.AST) -> None:
+        # Nested function/class defs are collected as their own nodes by
+        # _FunctionCollector and get their own _CallCollector pass — recursing
+        # into them here would double-attribute their calls to the enclosing
+        # function too (e.g. a call inside `def inner()` would wrongly also
+        # show up as a call made by `outer`).
+        pass
+
+    visit_FunctionDef = _skip_nested_def
+    visit_AsyncFunctionDef = _skip_nested_def
+    visit_ClassDef = _skip_nested_def
+
 
 def _subgraph_from(flow: Flow, start: str) -> Flow:
     """BFS from ``start`` following outgoing edges; return the reachable subgraph."""
@@ -99,8 +111,14 @@ def build_static_flow(path: str | Path, *, entry: str | None = None, include_ext
             call graph.
     """
     p = Path(path)
-    source = p.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(p))
+    try:
+        source = p.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Could not read {p}: {exc}") from exc
+    try:
+        tree = ast.parse(source, filename=str(p))
+    except SyntaxError as exc:
+        raise ValueError(f"Syntax error in {p}: {exc.msg} (line {exc.lineno})") from exc
 
     collector = _FunctionCollector()
     collector.visit(tree)

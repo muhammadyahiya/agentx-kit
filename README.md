@@ -53,7 +53,7 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack) |
 | `agentx providers` | List LLM providers + required env vars |
 | `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
-| `agentx flow [path] [--live\|--serve] [--ui] [--typecheck] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project — static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer, `--typecheck` mypy diagnostics, `--serve` click-to-run with live logs |
+| `agentx flow [path] [--live\|--serve] [--ui] [--typecheck] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project — static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer, `--typecheck` ruff + ty diagnostics, `--serve` click-to-run with live logs |
 | `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
 | `agentx agent run/research/deep` | Run an autonomous, research, or deep agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
@@ -84,7 +84,7 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 - **RAG that actually chunks + embeds**: LangChain splitter, FAISS **or** Chroma,
   8 embedding providers (HuggingFace local needs no key), document loaders for
   PDF / Excel / CSV / Word / Markdown, and incremental re-index via a manifest.
-- **Autonomous & research agents** (`agentx agent …`, or `agentx run` / `agentx
+- **Autonomous & research agents** (`agentx agent run` / `agentx agent
   research`) — sandboxed file tools, web search, citations.
 - **Deep agents** (`agentx agent deep`, or `agent_mode="deep"` in the wizard) —
   a todo-list planning tool, sandboxed filesystem tools, sub-agent delegation
@@ -420,13 +420,15 @@ full source, plus a fields table for classes that look like Pydantic
 capabilities are opt-in:
 
 ```bash
-agentx flow --ui --typecheck        # attach mypy diagnostics to nodes (red badge + list)
+agentx flow --ui --typecheck        # attach ruff + ty diagnostics to nodes (red badge + list)
 agentx flow app.py --serve          # click Run in the browser, watch it execute live
 ```
 
-- **`--typecheck`** runs [mypy](https://mypy.readthedocs.io/) in-process and
-  maps its diagnostics onto the nearest node — an inline red border marks
-  nodes with errors, and the side panel lists them. Requires
+- **`--typecheck`** runs [ruff](https://docs.astral.sh/ruff/) (lint) and
+  [ty](https://github.com/astral-sh/ty) (Astral's type checker) as
+  subprocesses and maps their diagnostics onto the nearest node — an inline
+  red border marks nodes with errors, and the side panel lists them (each
+  entry tagged with the tool that flagged it). Requires
   `pip install "agentx-kit[typecheck]"`.
 - **`--serve`** (single file only) starts a small local server — click
   **Run** in the viewer to execute the file as a subprocess, with stdout/
@@ -460,7 +462,7 @@ failing with "attempted relative import with no known parent package".
 | `trace` / `get_current_flow()` | Decorate functions to record real call order, counts, and timing (async-safe) |
 | `render_ascii` / `render_mermaid` / `render_json` / `render_dot` | One shape, four text export formats |
 | `render_html` | The interactive 2D/3D viewer (`--ui`), with optional `diagnostics`/`serve` params |
-| `agentx.flow.typecheck.run_mypy` | mypy wrapper behind `--typecheck` |
+| `agentx.flow.typecheck.run_typecheck` | ruff + ty wrapper behind `--typecheck` |
 | `agentx.flow.server.build_app` | The local FastAPI app behind `--serve` |
 
 Try it: `python examples/flow_demo.py`.
@@ -550,7 +552,7 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `mcp` | `langchain-mcp-adapters`, `mcp` | MCP client tools + built-in MCP server templates |
 | `observability` | `opentelemetry-*`, `openinference-*` | tracing |
 | `server` | `fastapi`, `uvicorn` | serving; also powers `agentx flow --serve` |
-| `typecheck` | `mypy` | `agentx flow --typecheck` |
+| `typecheck` | `ruff`, `ty` | `agentx flow --typecheck` |
 | `voice` | `faster-whisper`, `edge-tts`, `pyttsx3` | Speech-to-Text + Text-to-Speech |
 | `streamlit` | `streamlit` | Streamlit chat/voice UI |
 | `dashboard` | `streamlit`, `tiktoken`, `pandas` | prompt observability dashboard |

@@ -46,14 +46,30 @@ def _read_vendor(name: str) -> str:
     return (_VENDOR_DIR / name).read_text(encoding="utf-8")
 
 
-def _snippet(file: str | None, lineno: int | None, *, context: int = 4) -> str:
+def _get_lines(file: str | None, cache: dict[str, list[str] | None]) -> list[str] | None:
+    """Read+split ``file`` into lines once per :func:`render_html` call — a
+    project can have many nodes per file, so caching avoids re-reading it
+    from disk once per node (on top of the once-per-file parse ``_get_tree``
+    already avoids)."""
+    if not file:
+        return None
+    if file not in cache:
+        try:
+            cache[file] = Path(file).read_text(encoding="utf-8").splitlines()
+        except OSError:
+            cache[file] = None
+    return cache[file]
+
+
+def _snippet(
+    file: str | None, lineno: int | None, lines_cache: dict[str, list[str] | None], *, context: int = 4,
+) -> str:
     """A few source lines around ``lineno`` — the fallback for nodes with no
     resolvable def/class (external calls, module/package nodes)."""
     if not file or not lineno:
         return ""
-    try:
-        lines = Path(file).read_text(encoding="utf-8").splitlines()
-    except OSError:
+    lines = _get_lines(file, lines_cache)
+    if lines is None:
         return ""
     start = max(0, lineno - 1 - context)
     end = min(len(lines), lineno - 1 + context + 1)
@@ -93,24 +109,28 @@ def _extract_signature(file: str | None, lineno: int | None, cache: dict[str, as
     return f"{prefix} {node.name}({ast.unparse(node.args)}){returns}"
 
 
-def _full_source(file: str | None, lineno: int | None, cache: dict[str, ast.Module | None]) -> str:
+def _full_source(
+    file: str | None,
+    lineno: int | None,
+    tree_cache: dict[str, ast.Module | None],
+    lines_cache: dict[str, list[str] | None],
+) -> str:
     """The whole def/class body (using ``end_lineno``), not just a fixed
     context window — falls back to :func:`_snippet` when there's no
     resolvable def/class at this location."""
-    tree = _get_tree(file, cache)
+    tree = _get_tree(file, tree_cache)
     if tree is not None and lineno is not None:
         node = _find_def(tree, lineno)
         if node is not None and getattr(node, "end_lineno", None):
-            try:
-                lines = Path(file).read_text(encoding="utf-8").splitlines()  # type: ignore[arg-type]
+            lines = _get_lines(file, lines_cache)
+            if lines is not None:
                 return "\n".join(lines[node.lineno - 1 : node.end_lineno])
-            except OSError:
-                pass
-    return _snippet(file, lineno)
+    return _snippet(file, lineno, lines_cache)
 
 
 def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> dict:
     tree_cache: dict[str, ast.Module | None] = {}
+    lines_cache: dict[str, list[str] | None] = {}
     nodes = []
     for name, node in flow.nodes.items():
         kind = "external" if node.external else node.kind
@@ -129,7 +149,7 @@ def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> di
             "lineno": node.lineno,
             "calls": node.calls,
             "total_time": node.total_time,
-            "full_source": _full_source(node.file, node.lineno, tree_cache),
+            "full_source": _full_source(node.file, node.lineno, tree_cache, lines_cache),
             "signature": _extract_signature(node.file, node.lineno, tree_cache),
             "schema": schema,
             "type_errors": (diagnostics or {}).get(name, []),

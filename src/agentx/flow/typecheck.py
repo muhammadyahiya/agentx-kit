@@ -1,59 +1,101 @@
-"""Optional, opt-in type-checking pass for the flow viewer (``agentx flow --typecheck``).
+"""Optional, opt-in code-quality pass for the flow viewer (``agentx flow --typecheck``).
 
-Wraps `mypy <https://mypy.readthedocs.io/>`_'s in-process API — pure Python,
-no Node/toolchain requirement, unlike pyright — and maps its file:line
-diagnostics onto the nearest enclosing :class:`~agentx.flow.model.FlowNode`
-so the HTML viewer can show them per node. Requires the optional
-``agentx-kit[typecheck]`` extra; importing this module without mypy
-installed raises :class:`ImportError` (the CLI guards this with a friendly
-install hint before importing).
+Runs `ruff <https://docs.astral.sh/ruff/>`_ (lint) and
+`ty <https://github.com/astral-sh/ty>`_ (Astral's type checker) as
+subprocesses and maps their file:line diagnostics onto the nearest enclosing
+:class:`~agentx.flow.model.FlowNode` so the HTML viewer can show them per
+node. Both are Rust binaries with no stable in-process Python API (unlike
+mypy's ``mypy.api.run()``), so they're invoked as ``python -m ruff``/
+``python -m ty`` subprocesses with machine-readable output instead. Requires
+the optional ``agentx-kit[typecheck]`` extra; calling :func:`run_typecheck`
+without ruff/ty installed raises :class:`ImportError` (the CLI guards this
+with a friendly install hint before calling it).
 """
 from __future__ import annotations
 
-import re
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 from .model import Flow
 
-_LINE_RE = re.compile(r"^(?P<file>.+?):(?P<line>\d+):\s*(?P<severity>error|warning|note):\s*(?P<message>.+)$")
+# ty reports GitLab Code Quality severities (info/minor/major/critical/blocker);
+# the viewer only styles "error"/"warning"/"note" (see htmlgen.py's .diag-*
+# CSS classes), so map down to that 3-value vocabulary.
+_TY_SEVERITY_MAP = {
+    "blocker": "error",
+    "critical": "error",
+    "major": "error",
+    "minor": "warning",
+    "info": "note",
+}
 
 
-def run_mypy(path: str | Path) -> dict[str, list[dict]]:
-    """Run mypy against ``path`` (file or directory) and return diagnostics
-    grouped by absolute file path: ``{file: [{"line", "severity", "message"}, ...]}``.
-
-    Raises ``ImportError`` if mypy isn't installed — callers should guard
-    this the same way the CLI does for every other optional dependency.
-    """
-    from mypy import api  # noqa: PLC0415 — intentional: mypy is optional
-
-    # --no-incremental: this is a one-shot check on an arbitrary path, not
-    # iterative project development. mypy's on-disk incremental cache is
-    # keyed loosely enough that unrelated files sharing a basename (e.g. two
-    # different temp-dir "app.py"s) can serve each other's stale results —
-    # skip the cache entirely so every run is self-contained and correct.
-    #
-    # --ignore-missing-imports: agentx-kit itself (and most third-party libs
-    # a user's project imports) ships no `py.typed` marker, so without this
-    # every single project that imports `agentx.*` would get a spurious
-    # "missing library stubs" error drowning out real diagnostics about the
-    # user's own code.
-    stdout, _stderr, _status = api.run([
-        str(path), "--follow-imports=silent", "--show-error-codes",
-        "--no-error-summary", "--no-incremental", "--ignore-missing-imports",
-    ])
+def _run_ruff(path: str | Path) -> dict[str, list[dict]]:
+    """Run ``ruff check`` (lint) against ``path`` and return diagnostics
+    grouped by absolute file path."""
+    proc = subprocess.run(  # noqa: S603 — fixed argv, no shell, no user input
+        [sys.executable, "-m", "ruff", "check", str(path), "--output-format", "json", "--exit-zero"],
+        capture_output=True, text=True,
+    )
+    try:
+        items = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        return {}
 
     diagnostics: dict[str, list[dict]] = {}
-    for line in stdout.splitlines():
-        m = _LINE_RE.match(line)
-        if not m:
-            continue
-        file = str(Path(m.group("file")).resolve())
+    for item in items:
+        file = str(Path(item["filename"]).resolve())
         diagnostics.setdefault(file, []).append({
-            "line": int(m.group("line")),
-            "severity": m.group("severity"),
-            "message": m.group("message"),
+            "line": item["location"]["row"],
+            "severity": item.get("severity") or "warning",
+            "message": f"{item['code']} {item['message']}",
+            "tool": "ruff",
         })
+    return diagnostics
+
+
+def _run_ty(path: str | Path) -> dict[str, list[dict]]:
+    """Run ``ty check`` (type checking) against ``path`` and return
+    diagnostics grouped by absolute file path."""
+    proc = subprocess.run(  # noqa: S603 — fixed argv, no shell, no user input
+        [sys.executable, "-m", "ty", "check", str(path), "--output-format", "gitlab", "--exit-zero"],
+        capture_output=True, text=True,
+    )
+    try:
+        items = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        return {}
+
+    diagnostics: dict[str, list[dict]] = {}
+    for item in items:
+        file = str(Path(item["location"]["path"]).resolve())
+        diagnostics.setdefault(file, []).append({
+            "line": item["location"]["positions"]["begin"]["line"],
+            "severity": _TY_SEVERITY_MAP.get(item.get("severity", "major"), "error"),
+            "message": item["description"],
+            "tool": "ty",
+        })
+    return diagnostics
+
+
+def run_typecheck(path: str | Path) -> dict[str, list[dict]]:
+    """Run ruff (lint) and ty (type check) against ``path`` (file or
+    directory) and return merged diagnostics grouped by absolute file path:
+    ``{file: [{"line", "severity", "message", "tool"}, ...]}``.
+
+    Raises ``ImportError`` if ruff or ty aren't installed — callers should
+    guard this the same way the CLI does for every other optional dependency.
+    """
+    import ruff  # noqa: F401, PLC0415 — intentional: optional dep, checked here
+    import ty  # noqa: F401, PLC0415 — intentional: optional dep, checked here
+
+    diagnostics: dict[str, list[dict]] = {}
+    for file, diags in _run_ruff(path).items():
+        diagnostics.setdefault(file, []).extend(diags)
+    for file, diags in _run_ty(path).items():
+        diagnostics.setdefault(file, []).extend(diags)
     return diagnostics
 
 
@@ -88,4 +130,4 @@ def map_diagnostics_to_nodes(flow: Flow, file_diagnostics: dict[str, list[dict]]
     return result
 
 
-__all__ = ["run_mypy", "map_diagnostics_to_nodes"]
+__all__ = ["run_typecheck", "map_diagnostics_to_nodes"]
