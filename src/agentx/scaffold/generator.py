@@ -39,6 +39,7 @@ _COMMON_FILES: list[tuple[str, str]] = [
     ("pkg/utils/__init__.py.j2", "src/{pkg}/utils/__init__.py"),
     ("pkg/utils/llm.py.j2", "src/{pkg}/utils/llm.py"),
     ("pkg/main.py.j2", "src/{pkg}/main.py"),
+    ("tests/test_main.py.j2", "tests/test_main.py"),
 ]
 
 # A real LangGraph project: explicit state + per-agent nodes + graph + tools.

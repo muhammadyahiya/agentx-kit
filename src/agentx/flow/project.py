@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import ast
 import os
+import warnings
 from pathlib import Path
 
+from ._ast_helpers import CallCollector, subgraph_from
 from .model import Flow
-from .static import _CallCollector, _subgraph_from
 
 _EXCLUDED_DIRS = {
     ".git", ".venv", "venv", "__pycache__", ".tox",
@@ -110,6 +111,7 @@ class _ImportCollector(ast.NodeVisitor):
         self.module_dotted = module_dotted
         self.is_init = is_init
         self.map: dict[str, str] = {}
+        self.has_star_import = False
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -124,6 +126,17 @@ class _ImportCollector(ast.NodeVisitor):
         base = self._resolve_base(node)
         for alias in node.names:
             if alias.name == "*":
+                # Can't resolve statically what names this introduces — any
+                # call through one of them will fall through to "external"
+                # rather than resolving to the real project node. Surfaced as
+                # a warning (not silently dropped) so that's discoverable.
+                self.has_star_import = True
+                warnings.warn(
+                    f"{self.module_dotted}: 'from {node.module or '.'} import *' can't be "
+                    "resolved statically — calls through names it introduces will show as "
+                    "external in the flow graph.",
+                    stacklevel=2,
+                )
                 continue
             local = alias.asname or alias.name
             self.map[local] = f"{base}.{alias.name}" if base else alias.name
@@ -160,12 +173,54 @@ def _resolve_project_call(called: str, *, bare_to_qual: dict[str, str], import_m
     return None
 
 
+def _module_dependency(target: str, project_modules: set[str], own_module: str) -> str | None:
+    """Longest prefix of an import target that's a known project module —
+    used to build the module-level dependency graph for cycle detection."""
+    parts = target.split(".")
+    for i in range(len(parts), 0, -1):
+        candidate = ".".join(parts[:i])
+        if candidate in project_modules and candidate != own_module:
+            return candidate
+    return None
+
+
+def _detect_import_cycles(module_imports: dict[str, set[str]]) -> list[list[str]]:
+    """DFS cycle detection over the project's module import graph. Returns one
+    representative cycle (module names, first repeated at the end) per back
+    edge found — not exhaustive for every cycle in a strongly-connected
+    component, but enough to flag the problem."""
+    white, gray, black = 0, 1, 2
+    color = dict.fromkeys(module_imports, white)
+    stack: list[str] = []
+    cycles: list[list[str]] = []
+
+    def dfs(node: str) -> None:
+        color[node] = gray
+        stack.append(node)
+        for neighbor in module_imports.get(node, ()):
+            if neighbor not in color:
+                continue
+            if color[neighbor] == gray:
+                idx = stack.index(neighbor)
+                cycles.append([*stack[idx:], neighbor])
+            elif color[neighbor] == white:
+                dfs(neighbor)
+        stack.pop()
+        color[node] = black
+
+    for node in list(module_imports):
+        if color[node] == white:
+            dfs(node)
+    return cycles
+
+
 def build_project_flow(
     root: str | Path,
     *,
     entry: str | None = None,
     include_external: bool = True,
     include_tests: bool = True,
+    max_files: int | None = None,
 ) -> Flow:
     """Build a project-wide call-graph :class:`~agentx.flow.model.Flow` for every
     ``.py`` file under ``root`` (packages/modules/classes/functions as nodes).
@@ -178,11 +233,31 @@ def build_project_flow(
             function/class defined somewhere in the project.
         include_tests: Include ``test_*.py``/``*_test.py`` files and any
             ``tests/`` directory (on by default — they're real call edges too).
+        max_files: If given and the number of discovered ``.py`` files exceeds
+            it, raise ``ValueError`` instead of building a graph — a guard
+            against accidentally pointing at a huge/unrelated directory (e.g.
+            a home directory) with no feedback until it's already scanned
+            everything.
     """
     root = Path(root).resolve()
     files = _iter_python_files(root, include_tests=include_tests)
+    if max_files is not None and len(files) > max_files:
+        raise ValueError(
+            f"{len(files)} Python files found under {root} (max_files={max_files}). "
+            "Pass a higher --max-files, or point at a smaller directory."
+        )
 
-    records: list[tuple[Path, ast.Module, str, bool]] = []
+    flow = Flow(kind="static", scope="project")
+
+    # Pass 1: parse each file once, register every node + its own import map,
+    # then let the parsed tree fall out of scope — pass 2 re-parses from disk
+    # instead of keeping every file's AST resident simultaneously for the
+    # whole function call, so peak memory no longer scales with project size
+    # (at the cost of parsing each file twice; a deliberate CPU/memory trade
+    # for large projects).
+    per_file: dict[Path, tuple[dict[str, str], dict[str, str], str, bool]] = {}
+    # per_file[path] = (bare_to_qual, import_map, module_dotted, is_init)
+
     for path in files:
         try:
             source = path.read_text(encoding="utf-8")
@@ -195,15 +270,11 @@ def build_project_flow(
             tree = ast.parse(source, filename=str(path))
         except SyntaxError:
             continue
+
         module_dotted, is_init = _module_name(path, root)
         if not module_dotted:
             module_dotted = root.name or "__root__"
-        records.append((path, tree, module_dotted, is_init))
 
-    flow = Flow(kind="static", scope="project")
-
-    per_file: dict[Path, tuple[_ProjectCollector, dict[str, str], dict[str, str]]] = {}
-    for path, tree, module_dotted, is_init in records:
         parent = module_dotted.rsplit(".", 1)[0] if "." in module_dotted else None
         _ensure_package_chain(flow, module_dotted)
         flow.add_node(module_dotted, file=str(path), lineno=1, kind="package" if is_init else "module", parent=parent)
@@ -223,15 +294,38 @@ def build_project_flow(
 
         importer = _ImportCollector(module_dotted, is_init)
         importer.visit(tree)
-        per_file[path] = (collector, bare_to_qual, importer.map)
 
-    for path, tree, module_dotted, is_init in records:
-        collector, bare_to_qual, import_map = per_file[path]
+        per_file[path] = (bare_to_qual, importer.map, module_dotted, is_init)
+        # `tree`/`collector`/`importer` fall out of scope here — nothing from
+        # this file's AST is retained past this iteration.
+
+    project_modules = {module_dotted for _, _, module_dotted, _ in per_file.values()}
+    module_imports: dict[str, set[str]] = {}
+    for _bare_to_qual, import_map, module_dotted, _is_init in per_file.values():
+        deps = {
+            dep for target in import_map.values()
+            if (dep := _module_dependency(target, project_modules, module_dotted)) is not None
+        }
+        module_imports.setdefault(module_dotted, set()).update(deps)
+    for cycle in _detect_import_cycles(module_imports):
+        warnings.warn(f"Circular import detected: {' -> '.join(cycle)}", stacklevel=2)
+
+    # Pass 2: re-parse each file (now that every project-wide node is known)
+    # to resolve cross-file calls into edges.
+    for path, (bare_to_qual, import_map, module_dotted, _is_init) in per_file.items():
+        try:
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            continue  # file changed on disk between passes — skip rather than crash
+
+        collector = _ProjectCollector(module_dotted)
+        collector.visit(tree)
 
         for qual, (node_ast, kind_) in collector.items.items():
             if kind_ != "function":
                 continue
-            calls = _CallCollector()
+            calls = CallCollector()
             for stmt in node_ast.body:
                 calls.visit(stmt)
             for called in calls.calls:
@@ -243,7 +337,7 @@ def build_project_flow(
                     flow.add_edge(qual, called)
 
         # Module-level calls (executed at import time) — attribute to the module node.
-        module_calls = _CallCollector()
+        module_calls = CallCollector()
         for stmt in tree.body:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 continue
@@ -266,7 +360,7 @@ def build_project_flow(
             target = global_bare_to_qual.get(entry)
         if target is None:
             raise ValueError(f"Function {entry!r} not found in {root}")
-        sub = _subgraph_from(flow, target)
+        sub = subgraph_from(flow, target)
         sub.scope = "project"
         return sub
 

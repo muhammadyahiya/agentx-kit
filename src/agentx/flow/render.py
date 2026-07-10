@@ -1,9 +1,18 @@
-"""Render a :class:`~agentx.flow.model.Flow` as ascii / mermaid / json / dot."""
+"""Render a :class:`~agentx.flow.model.Flow` as ascii / mermaid / json / dot.
+
+Renderers are registered by name in :data:`_RENDERERS` instead of being a
+hardcoded ``if fmt == ...`` chain the CLI owns — see
+:func:`register_renderer`/:func:`get_renderer`/:func:`available_renderers`.
+This lets third-party code add a new ``agentx flow -f <name>`` output format
+by calling ``register_renderer`` without patching this package."""
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Callable, Union
 
 from .model import Flow
+
+RendererFn = Callable[[Flow], Union[str, dict]]
 
 
 def _label(flow: Flow, name: str) -> str:
@@ -131,4 +140,35 @@ def render_dot(flow: Flow) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["render_ascii", "render_mermaid", "render_json", "render_dot"]
+_RENDERERS: dict[str, RendererFn] = {}
+
+
+def register_renderer(name: str, fn: RendererFn) -> None:
+    """Register ``fn`` as the renderer for ``agentx flow -f <name>`` (and
+    :func:`get_renderer`). ``fn`` takes a :class:`Flow` and returns either
+    text (printed as-is) or a ``dict`` (printed as JSON) — the CLI picks
+    based on the return type, so a plugin doesn't need CLI changes to work.
+    Re-registering an existing ``name`` replaces it."""
+    _RENDERERS[name] = fn
+
+
+def get_renderer(name: str) -> RendererFn | None:
+    """The renderer registered under ``name``, or ``None`` if there isn't one."""
+    return _RENDERERS.get(name)
+
+
+def available_renderers() -> list[str]:
+    """Every currently-registered renderer name, sorted."""
+    return sorted(_RENDERERS)
+
+
+register_renderer("ascii", render_ascii)
+register_renderer("mermaid", render_mermaid)
+register_renderer("json", render_json)
+register_renderer("dot", render_dot)
+
+
+__all__ = [
+    "render_ascii", "render_mermaid", "render_json", "render_dot",
+    "register_renderer", "get_renderer", "available_renderers",
+]

@@ -36,7 +36,15 @@ builds a whole-project graph (packages/modules/classes/functions), which
 from .htmlgen import render_html
 from .model import Flow, FlowEdge, FlowNode
 from .project import build_project_flow
-from .render import render_ascii, render_dot, render_json, render_mermaid
+from .render import (
+    available_renderers,
+    get_renderer,
+    register_renderer,
+    render_ascii,
+    render_dot,
+    render_json,
+    render_mermaid,
+)
 from .static import build_static_flow
 from .tracer import get_current_flow, reset_trace, trace
 
@@ -54,4 +62,7 @@ __all__ = [
     "render_json",
     "render_dot",
     "render_html",
+    "register_renderer",
+    "get_renderer",
+    "available_renderers",
 ]

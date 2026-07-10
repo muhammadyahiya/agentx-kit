@@ -81,6 +81,14 @@ def test_static_dot_format_not_corrupted_by_rich_markup(tmp_path: Path) -> None:
     assert '[label="a"]' in result.output
 
 
+def test_unknown_format_errors_with_available_list(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(p), "-f", "yaml"])
+    assert result.exit_code == 1
+    assert "Unknown format" in result.output
+    assert "ascii" in result.output and "mermaid" in result.output
+
+
 def test_static_unknown_entry_errors(tmp_path: Path) -> None:
     p = _write(tmp_path, "app.py", "def a():\n    pass\n")
     result = runner.invoke(app, ["flow", str(p), "--entry", "nope"])
@@ -116,7 +124,10 @@ if __name__ == "__main__":
     assert "2 calls" in result.output  # clean() called twice
 
 
-def test_live_mode_no_trace_decorators_warns(tmp_path: Path) -> None:
+def test_live_mode_no_trace_decorators_warns_and_exits_nonzero(tmp_path: Path) -> None:
+    # A misconfigured --live run (no @trace decorators anywhere in the target)
+    # must exit nonzero, not 0 — otherwise CI/scripts can't tell it apart from
+    # a successful run that happened to trace nothing.
     p = _write(tmp_path, "plain.py", """
 def hello():
     pass
@@ -125,7 +136,7 @@ if __name__ == "__main__":
     hello()
 """)
     result = runner.invoke(app, ["flow", str(p), "--live"])
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "No traced calls recorded" in result.output
 
 
@@ -178,6 +189,15 @@ def test_ui_flag_without_out_writes_temp_file(tmp_path: Path) -> None:
     written.unlink()
 
 
+def test_ui_cdn_flag_references_cdn_instead_of_inlining(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    out = tmp_path / "viewer.html"
+    result = runner.invoke(app, ["flow", str(p), "--ui", "--cdn", "--no-open", "--out", str(out)])
+    assert result.exit_code == 0
+    html = out.read_text(encoding="utf-8")
+    assert "cdn.jsdelivr.net" in html
+
+
 def test_no_external_flag_excludes_stdlib_calls(tmp_path: Path) -> None:
     p = _write(tmp_path, "app.py", """
 import json
@@ -189,6 +209,14 @@ def dump():
     without_ext = runner.invoke(app, ["flow", str(p), "--entry", "dump", "--no-external", "-f", "json"])
     assert any(n["name"] == "json.dumps" for n in json.loads(with_ext.output)["nodes"])
     assert not any(n["name"] == "json.dumps" for n in json.loads(without_ext.output)["nodes"])
+
+
+def test_max_files_guard_rejects_oversized_project(tmp_path: Path) -> None:
+    _write(tmp_path, "a.py", "def a():\n    pass\n")
+    _write(tmp_path, "b.py", "def b():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(tmp_path), "--max-files", "1"])
+    assert result.exit_code == 1
+    assert "max_files" in result.output or "--max-files" in result.output
 
 
 def test_live_and_serve_together_rejected(tmp_path: Path) -> None:
