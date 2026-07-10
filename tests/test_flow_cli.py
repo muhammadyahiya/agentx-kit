@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agentx.cli import app
@@ -188,3 +189,48 @@ def dump():
     without_ext = runner.invoke(app, ["flow", str(p), "--entry", "dump", "--no-external", "-f", "json"])
     assert any(n["name"] == "json.dumps" for n in json.loads(with_ext.output)["nodes"])
     assert not any(n["name"] == "json.dumps" for n in json.loads(without_ext.output)["nodes"])
+
+
+def test_live_and_serve_together_rejected(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(p), "--live", "--serve"])
+    assert result.exit_code == 1
+    assert "two different execution modes" in result.output
+
+
+def test_serve_on_directory_rejected(tmp_path: Path) -> None:
+    _write(tmp_path, "a.py", "def a():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(tmp_path), "--serve"])
+    assert result.exit_code == 1
+    assert "single file" in result.output
+
+
+def test_serve_with_out_rejected(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(p), "--serve", "--out", str(tmp_path / "x.html")])
+    assert result.exit_code == 1
+    assert "--out" in result.output
+
+
+def test_typecheck_missing_mypy_prints_install_hint(tmp_path: Path, monkeypatch) -> None:
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "mypy":
+            raise ImportError("simulated: mypy not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(p), "--typecheck"])
+    assert result.exit_code == 1
+    assert "agentx-kit[typecheck]" in result.output
+
+
+def test_typecheck_reports_error_count(tmp_path: Path) -> None:
+    pytest.importorskip("mypy")
+    p = _write(tmp_path, "bad.py", "def add(a: int, b: int) -> int:\n    return a + b\n\nresult: str = add(1, 2)\n")
+    result = runner.invoke(app, ["flow", str(p), "--typecheck", "-f", "json"])
+    assert result.exit_code == 0
+    assert "mypy: 1 error" in result.output
