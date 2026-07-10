@@ -53,7 +53,7 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack) |
 | `agentx providers` | List LLM providers + required env vars |
 | `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
-| `agentx flow <file.py> [--live] [--format ascii\|mermaid\|json\|dot]` | Show any Python file's function-call DAG (static AST, or `--live` runtime trace) |
+| `agentx flow [path] [--live] [--ui] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project (static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer) |
 | `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
 | `agentx agent run/research/deep` | Run an autonomous, research, or deep agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
@@ -90,9 +90,10 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
   a todo-list planning tool, sandboxed filesystem tools, sub-agent delegation
   (agent-as-tool), and an optional critic/reflection revision loop, the same
   primitives behind LangChain's `deepagents` and Claude Code's own harness.
-- **Flow — code as a DAG** (`agentx flow <file.py>`) — a static AST call graph
-  for any Python file (no execution), or `--live` to run it and see the real
-  call counts + timing via a `@trace` decorator. Export ascii/mermaid/json/dot.
+- **Flow — code as a DAG** (`agentx flow [path]`) — a static AST call graph for
+  a file or a whole project (no execution), or `--live` to run a file and see
+  real call counts + timing via a `@trace` decorator. Export ascii/mermaid/
+  json/dot, or `--ui` for an interactive, colored 2D/3D graph viewer.
 - **Domain-aware seeding**: name a project `legal-assistant` (or pass `--domain`)
   and it gets an expert system prompt + a seed knowledge base + RAG on.
 - **Dashboard v2**: pick any provider/model, **enter your API key in the UI**,
@@ -363,18 +364,21 @@ default chat node, with planning/filesystem/reflection wired per your choices.
 Most Python devs understand a project by reading code or a static import
 graph. `agentx flow` builds an actual **function-call DAG** instead — either
 by parsing the file (no execution) or by running it and recording what really
-happened.
+happened. Point it at a directory (or run it with no path at all) and it
+builds a whole-**project** graph — packages, modules, classes, and functions —
+instead of just one file.
 
 ```bash
 agentx flow app.py                        # static call graph — no execution, works on any file
 agentx flow app.py --entry train_model    # only the subgraph reachable from one function
 agentx flow app.py -f mermaid             # paste into a .md file / VS Code / GitHub
 agentx flow app.py -f dot > flow.dot && dot -Tsvg flow.dot -o flow.svg
+agentx flow                               # whole project (cwd): modules, classes, functions
 ```
 
 For the *actual* execution graph — real call counts and per-call timing —
 decorate functions with `@trace` and run your code normally, or let the CLI
-run it for you with `--live`:
+run it for you with `--live` (single file only):
 
 ```python
 from agentx.flow import trace
@@ -391,11 +395,31 @@ train()   # each call is recorded — see agentx.flow.get_current_flow()
 agentx flow app.py --live   # runs app.py, then renders the REAL execution graph
 ```
 
+### Interactive 2D/3D viewer
+`--ui` skips the text renderers and opens a self-contained, interactive DAG
+viewer in your browser — no server, no CDN, works fully offline from one
+HTML file:
+
+```bash
+agentx flow --ui                 # whole project, opens the interactive viewer
+agentx flow app.py --ui          # one file
+agentx flow --ui --no-open -o flow.html   # write it without launching a browser
+```
+
+Nodes are colored by kind (function / class / module / external); a
+Modules → Classes → Full detail control collapses large projects down to a
+coarse module-to-module graph by default; click a node for its source
+snippet and file:line, click two nodes to highlight the call path between
+them, search by name, and toggle a secondary experimental 3D view (layered
+by call depth). Dark/light follows your system theme with a manual override.
+
 | Building block | What it does |
 |---|---|
-| `build_static_flow(path, entry=None)` | Parse a file with `ast`, build a function-call graph (best-effort, like `code2flow`/`pyan`) |
+| `build_static_flow(path, entry=None)` | Parse one file with `ast`, build a function-call graph (best-effort, like `code2flow`/`pyan`) |
+| `build_project_flow(root, entry=None)` | Parse every file under a directory, resolving cross-file calls through each file's imports |
 | `trace` / `get_current_flow()` | Decorate functions to record real call order, counts, and timing (async-safe) |
-| `render_ascii` / `render_mermaid` / `render_json` / `render_dot` | One shape, four export formats |
+| `render_ascii` / `render_mermaid` / `render_json` / `render_dot` | One shape, four text export formats |
+| `render_html` | The interactive 2D/3D viewer (`--ui`) |
 
 Try it: `python examples/flow_demo.py`.
 

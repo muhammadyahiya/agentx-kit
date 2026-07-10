@@ -224,25 +224,31 @@ def graph(
 
 @app.command()
 def flow(
-    path: Path = typer.Argument(..., help="Python file to analyze."),
+    path: Path = typer.Argument(Path("."), help="Python file or directory to analyze (default: current directory)."),
     entry: str = typer.Option("", "--entry", "-e", help="Static mode: only the subgraph reachable from this function."),
     fmt: str = typer.Option("ascii", "--format", "-f", help="ascii | mermaid | json | dot"),
     external: bool = typer.Option(True, "--external/--no-external", help="Include calls to non-local functions (stdlib/3rd-party)."),
     live: bool = typer.Option(
         False, "--live",
-        help="Execute the file and render the ACTUAL runtime call graph (needs @agentx.flow.trace decorators in the target file).",
+        help="Execute the file and render the ACTUAL runtime call graph (needs @agentx.flow.trace decorators in the target file). Single file only.",
     ),
+    ui: bool = typer.Option(False, "--ui", help="Open an interactive 2D/3D DAG viewer in your browser instead of printing text."),
+    out: Path = typer.Option(None, "--out", "-o", help="With --ui, write the viewer HTML here instead of a temp file."),
+    no_open: bool = typer.Option(False, "--no-open", help="With --ui, write the viewer file but don't launch a browser."),
 ) -> None:
-    """Show a Python file's function-call flow as a DAG.
+    """Show a Python file's — or a whole project's — function-call flow as a DAG.
 
-    Static mode (default) parses the file with `ast` — nothing is imported or
-    executed, works on any file. Live mode (`--live`) actually runs the file,
-    so any `@agentx.flow.trace`-decorated functions are recorded with real
-    call counts and timing.
+    Static mode (default) parses the file (or every file under a directory)
+    with `ast` — nothing is imported or executed. Live mode (`--live`, single
+    file only) actually runs the file, so any `@agentx.flow.trace`-decorated
+    functions are recorded with real call counts and timing. `--ui` renders
+    an interactive 2D/3D graph viewer instead of text.
 
     Examples:
 
-        agentx flow app.py                       # static call graph, whole file
+        agentx flow                              # static call graph, whole project (cwd)
+        agentx flow --ui                          # ...as an interactive 2D/3D viewer
+        agentx flow app.py                        # static call graph, one file
         agentx flow app.py --entry train_model -f mermaid
         agentx flow app.py --live                 # run it, show the real execution graph
         agentx flow app.py -f dot > flow.dot && dot -Tsvg flow.dot -o flow.svg
@@ -250,10 +256,13 @@ def flow(
     from . import flow as flow_lib
 
     if not path.exists():
-        console.print(f"[red]File not found:[/] {path}")
+        console.print(f"[red]Path not found:[/] {path}")
         raise typer.Exit(1)
 
     if live:
+        if path.is_dir():
+            console.print("[red]--live only supports a single file, not a directory.[/]")
+            raise typer.Exit(1)
         flow_lib.reset_trace()
         import runpy
 
@@ -272,10 +281,32 @@ def flow(
             )
     else:
         try:
-            graph_result = flow_lib.build_static_flow(path, entry=entry or None, include_external=external)
+            if path.is_dir():
+                graph_result = flow_lib.build_project_flow(path, entry=entry or None, include_external=external)
+            else:
+                graph_result = flow_lib.build_static_flow(path, entry=entry or None, include_external=external)
         except ValueError as exc:
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(1) from exc
+
+    if ui:
+        import tempfile
+        import webbrowser
+
+        html = flow_lib.render_html(graph_result)
+        if out:
+            out.write_text(html, encoding="utf-8")
+            out_path = out
+        else:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".html", prefix="agentx-flow-", delete=False, encoding="utf-8",
+            ) as fh:
+                fh.write(html)
+                out_path = Path(fh.name)
+        console.print(f"[green]Wrote[/] {out_path}")
+        if not no_open:
+            webbrowser.open(out_path.resolve().as_uri())
+        return
 
     fmt = fmt.lower()
     if fmt == "json":
