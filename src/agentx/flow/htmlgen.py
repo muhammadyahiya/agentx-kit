@@ -240,6 +240,10 @@ label.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .log-stderr { color: #ff8080; }
 .log-trace { color: #7ec8e3; }
 .log-info { color: #999; font-style: italic; }
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid #2a2b2f; }
+.term-prompt { color: #2ca02c; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+#termInput { flex: 1; background: #0f1012; border: 1px solid #2a2b2f; color: #d8d8d8; border-radius: 4px; padding: 5px 8px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+#termInput:disabled { opacity: 0.5; }
 """
 
 _APP_JS = """
@@ -520,8 +524,10 @@ _APP_JS = """
     runBtn.style.display = '';
     const logPane = document.getElementById('logPane');
     const logBody = document.getElementById('logBody');
+    const termInput = document.getElementById('termInput');
     const token = DATA.serve_token;
     let currentRunId = null;
+    let running = false;
 
     function logLine(cls, text) {
       const el = document.createElement('div');
@@ -534,15 +540,35 @@ _APP_JS = """
       const ele = cy.getElementById(nodeId);
       if (ele && ele.length) { ele.removeClass('running done-ok'); ele.addClass(cls); }
     }
+    function setRunning(isRunning) {
+      running = isRunning;
+      runBtn.style.display = isRunning ? 'none' : '';
+      stopBtn.style.display = isRunning ? '' : 'none';
+      termInput.disabled = isRunning;
+    }
 
-    runBtn.addEventListener('click', async () => {
+    // command === null runs the target file (with full trace events, via
+    // _serve_runner); a non-empty string runs that as a plain shell command
+    // instead (no trace events — we don't control what it does — but the
+    // same live stdout/stderr streaming, i.e. a minimal terminal).
+    async function startRun(command) {
+      if (running) return;
       logPane.style.display = 'flex';
       logBody.innerHTML = '';
       cy.nodes().removeClass('running done-ok');
-      runBtn.style.display = 'none';
-      stopBtn.style.display = '';
-      logLine('log-info', 'Starting run...');
-      const res = await fetch(`/api/run?token=${token}`, { method: 'POST' });
+      setRunning(true);
+      logLine('log-info', command ? '$ ' + command : 'Starting run...');
+      const res = await fetch(`/api/run?token=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: command || '' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        logLine('log-stderr', 'Failed to start: ' + (err.detail || res.statusText));
+        setRunning(false);
+        return;
+      }
       const { run_id } = await res.json();
       currentRunId = run_id;
       const evtSource = new EventSource(`/api/stream/${run_id}?token=${token}`);
@@ -555,13 +581,22 @@ _APP_JS = """
         else if (ev.type === 'error') logLine('log-stderr', 'ERROR: ' + ev.message);
         else if (ev.type === 'done') {
           logLine('log-info', `Process exited (code ${ev.exit_code}).`);
-          runBtn.style.display = ''; stopBtn.style.display = 'none';
+          setRunning(false);
           evtSource.close();
         }
       };
-    });
+    }
+
+    runBtn.addEventListener('click', () => startRun(null));
     stopBtn.addEventListener('click', async () => {
       if (currentRunId) await fetch(`/api/stop/${currentRunId}?token=${token}`, { method: 'POST' });
+    });
+    termInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && termInput.value.trim()) {
+        const cmd = termInput.value.trim();
+        termInput.value = '';
+        startRun(cmd);
+      }
     });
     document.getElementById('closeLog').addEventListener('click', () => { logPane.style.display = 'none'; });
   } else {
@@ -611,6 +646,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <div id="logPane">
     <div class="log-header"><span>Execution log</span><button class="btn-mini" id="closeLog">×</button></div>
     <div id="logBody"></div>
+    <div class="term-bar">
+      <span class="term-prompt">$</span>
+      <input type="text" id="termInput" placeholder="Run a command, e.g. python main.py (executes on your machine)">
+    </div>
   </div>
 </div>
 __VENDOR_SCRIPTS__

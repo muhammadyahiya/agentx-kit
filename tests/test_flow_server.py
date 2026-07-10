@@ -1,6 +1,7 @@
 """Tests for agentx.flow.server — the `--serve` live-execution backend."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -105,3 +106,100 @@ def test_stream_requires_token(tmp_path: Path) -> None:
     token = _token(client)
     run_id = client.post(f"/api/run?token={token}").json()["run_id"]
     assert client.get(f"/api/stream/{run_id}").status_code == 403
+
+
+def test_custom_command_runs_and_streams_stdout(tmp_path: Path) -> None:
+    # The terminal box: an arbitrary command instead of the default target
+    # file — plain subprocess streaming, no tracer/trace events involved.
+    p = _write(tmp_path, "def a():\n    pass\n")
+    app = build_app(build_static_flow(p), p)
+    client = TestClient(app)
+    token = _token(client)
+
+    run_id = client.post(
+        f"/api/run?token={token}", json={"command": "python3 -c \"print('from terminal')\""},
+    ).json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+
+    assert not any(e["type"] in ("trace_call", "trace_return") for e in events)
+    assert any(e["type"] == "stdout" and "from terminal" in e["text"] for e in events)
+    assert events[-1] == {"type": "done", "exit_code": 0, "ts": events[-1]["ts"]}
+
+
+def test_custom_command_bad_syntax_returns_400(tmp_path: Path) -> None:
+    p = _write(tmp_path, "def a():\n    pass\n")
+    app = build_app(build_static_flow(p), p)
+    client = TestClient(app)
+    token = _token(client)
+
+    resp = client.post(f"/api/run?token={token}", json={"command": "python3 -c \"unterminated"})
+    assert resp.status_code == 400
+
+
+def test_terminal_python_command_for_package_file_resolves_relative_imports(tmp_path: Path) -> None:
+    # "python main.py" typed into the terminal box, where main.py is part of
+    # a package using relative imports, must not hit "attempted relative
+    # import with no known parent package" — same fix as the default Run
+    # button (execrun.run_target), applied transparently to typed commands too.
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "config.py").write_text("SETTING = 'hello'\n", encoding="utf-8")
+    main_py = tmp_path / "pkg" / "main.py"
+    main_py.write_text(
+        "from .config import SETTING\n\nif __name__ == '__main__':\n    print('SETTING =', SETTING)\n",
+        encoding="utf-8",
+    )
+    flow = build_static_flow(main_py)
+    app = build_app(flow, main_py)
+    client = TestClient(app)
+    token = _token(client)
+
+    import sys
+    run_id = client.post(
+        f"/api/run?token={token}", json={"command": f"{sys.executable} {main_py}"},
+    ).json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+
+    assert not any(e["type"] == "error" for e in events)
+    assert any(e["type"] == "stdout" and "SETTING = hello" in e["text"] for e in events)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["exit_code"] == 0
+
+
+def test_terminal_command_for_non_package_python_file_runs_unmodified(tmp_path: Path) -> None:
+    # A `python script.py` command where script.py is NOT part of a package
+    # should not be rewritten — it already runs fine as a literal command.
+    p = _write(tmp_path, "def a():\n    pass\n")
+    standalone = tmp_path / "standalone.py"
+    standalone.write_text("print('standalone ran')\n", encoding="utf-8")
+    app = build_app(build_static_flow(p), p)
+    client = TestClient(app)
+    token = _token(client)
+
+    import sys
+    run_id = client.post(
+        f"/api/run?token={token}", json={"command": f"{sys.executable} {standalone}"},
+    ).json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+    assert any(e["type"] == "stdout" and "standalone ran" in e["text"] for e in events)
+
+
+def test_custom_command_runs_in_invocation_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = _write(tmp_path, "def a():\n    pass\n")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    app = build_app(build_static_flow(p), p)  # build_app captures Path.cwd() at build time
+    client = TestClient(app)
+    token = _token(client)
+
+    run_id = client.post(
+        f"/api/run?token={token}", json={"command": "python3 -c \"import os; print(os.getcwd())\""},
+    ).json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+    stdout_text = next(e["text"] for e in events if e["type"] == "stdout")
+    assert Path(stdout_text).resolve() == workdir.resolve()
