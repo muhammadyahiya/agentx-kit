@@ -3,6 +3,9 @@
 [![PyPI](https://img.shields.io/pypi/v/agentx-kit.svg)](https://pypi.org/project/agentx-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/agentx-kit.svg)](https://pypi.org/project/agentx-kit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://muhammadyahiya.github.io/agentx-kit/)
+
+📖 **Full documentation:** [muhammadyahiya.github.io/agentx-kit](https://muhammadyahiya.github.io/agentx-kit/)
 
 **A provider-agnostic agentic framework + interactive project scaffolder for LangChain & CrewAI.**
 
