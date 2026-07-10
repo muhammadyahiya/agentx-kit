@@ -126,6 +126,20 @@ class TestGraphviz:
         assert root == tmp_path.resolve()
         assert mf["name"] == "p"
 
+    def test_load_manifest_with_no_version_field_is_treated_as_v1(self, tmp_path) -> None:
+        # Manifests written before manifest_version existed have no such key
+        # — must still load cleanly, not be rejected as "too old".
+        (tmp_path / "agentx.json").write_text(json.dumps({"name": "legacy", "agents": ["x"]}))
+        _root, mf = graphviz.load_manifest(tmp_path)
+        assert mf["name"] == "legacy"
+
+    def test_load_manifest_rejects_future_version(self, tmp_path) -> None:
+        (tmp_path / "agentx.json").write_text(
+            json.dumps({"name": "p", "agents": ["x"], "manifest_version": 999})
+        )
+        with pytest.raises(ValueError, match="newer agentx-kit"):
+            graphviz.load_manifest(tmp_path)
+
 
 class TestDomains:
     def test_infer_legal(self) -> None:

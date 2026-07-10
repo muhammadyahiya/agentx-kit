@@ -54,11 +54,19 @@ from .htmlgen import render_html
 from .model import Flow
 
 
+#: How long a finished run's entry stays in `runs` after its "done"/"error"
+#: event is enqueued — long enough for a slow client (or a reconnecting one)
+#: to still read the final status, short enough that a long `--serve` session
+#: with many Run clicks doesn't accumulate finished runs forever.
+_RUN_RETENTION_SECONDS = 300
+
+
 class _Run:
     def __init__(self, proc: subprocess.Popen) -> None:
         self.proc = proc
         self.queue: queue.Queue[dict] = queue.Queue()
         self.done = False
+        self.finished_at: float | None = None
 
 
 _PYTHON_EXE_NAMES = {"python", "python3", Path(sys.executable).name}
@@ -100,6 +108,7 @@ def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, lis
     invocation_cwd = Path.cwd()
     runs: dict[str, _Run] = {}
     app = FastAPI(title="agentx flow --serve", docs_url=None, redoc_url=None)
+    app.state.runs = runs  # exposed for tests/introspection, not used by any route
 
     def _check_token(request: Request) -> None:
         if request.query_params.get("token") != token:
@@ -109,9 +118,21 @@ def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, lis
     def index() -> str:
         return render_html(flow, diagnostics=diagnostics, serve=True, serve_token=token)
 
+    def _sweep_finished_runs() -> None:
+        """Drop old finished-run entries so a long `--serve` session doesn't
+        accumulate a `_Run` (Popen + Queue) per click forever."""
+        now = time.time()
+        stale = [
+            rid for rid, r in runs.items()
+            if r.done and r.finished_at is not None and (now - r.finished_at) > _RUN_RETENTION_SECONDS
+        ]
+        for rid in stale:
+            del runs[rid]
+
     @app.post("/api/run")
     async def start_run(request: Request) -> dict:
         _check_token(request)
+        _sweep_finished_runs()
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001 — empty/absent body is fine, just means "default run"
@@ -163,9 +184,18 @@ def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, lis
             raise HTTPException(status_code=404, detail="unknown run_id")
 
         async def generator():
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             while True:
-                event = await loop.run_in_executor(None, run.queue.get)
+                # A timeout (rather than a plain blocking `queue.get()`) lets
+                # this executor-thread call return on its own when the
+                # browser disconnects and this coroutine is cancelled —
+                # otherwise the thread would sit blocked in the pool until
+                # the run happens to produce another line, potentially
+                # forever for a long-running/silent subprocess.
+                try:
+                    event = await loop.run_in_executor(None, run.queue.get, True, 1.0)
+                except queue.Empty:
+                    continue
                 yield {"event": "message", "data": json.dumps(event)}
                 if event.get("type") in ("done", "error"):
                     break
@@ -200,7 +230,9 @@ def _run_to_completion(run: _Run) -> None:
     exit_code = run.proc.wait()
     t_out.join()
     t_err.join()
-    run.queue.put({"type": "done", "exit_code": exit_code, "ts": time.time()})
+    run.done = True
+    run.finished_at = time.time()
+    run.queue.put({"type": "done", "exit_code": exit_code, "ts": run.finished_at})
 
 
 __all__ = ["build_app"]

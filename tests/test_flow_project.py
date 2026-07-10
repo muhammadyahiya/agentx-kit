@@ -100,6 +100,36 @@ def test_excludes_venv_and_pycache_dirs(tmp_path: Path) -> None:
     assert not any("should_not_appear" in name for name in flow.nodes)
 
 
+def test_binary_file_with_py_extension_is_skipped_not_fatal(tmp_path: Path) -> None:
+    pkg = _make_pkg(tmp_path)
+    binary_path = tmp_path / "pkg" / "not_really_python.py"
+    binary_path.write_bytes(b"\xff\xfe\x00\x01binary garbage, not utf-8 \x80\x81")
+    # Must not raise UnicodeDecodeError — the rest of the project still builds.
+    flow = build_project_flow(pkg)
+    assert "pkg.a.foo" in flow.nodes
+
+
+def test_unreadable_file_is_skipped_not_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # chmod-based "unreadable file" tests are unreliable across platforms
+    # (root ignores permission bits; Windows chmod semantics differ), so
+    # simulate the OSError directly instead.
+    pkg = _make_pkg(tmp_path)
+    locked = tmp_path / "pkg" / "locked.py"
+    locked.write_text("def locked_fn():\n    pass\n", encoding="utf-8")
+
+    real_read_text = Path.read_text
+
+    def fake_read_text(self, *args, **kwargs):
+        if self == locked:
+            raise PermissionError(f"simulated: permission denied for {self}")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    flow = build_project_flow(pkg)
+    assert "pkg.a.foo" in flow.nodes
+    assert not any("locked_fn" in name for name in flow.nodes)
+
+
 def test_include_tests_flag(tmp_path: Path) -> None:
     pkg = _make_pkg(tmp_path)
     _write(tmp_path, "pkg/tests/test_a.py", """

@@ -155,3 +155,27 @@ def factorial(n):
 """)
     flow = build_static_flow(p, entry="factorial")
     assert flow.successors("factorial") == ["factorial"]
+
+
+def test_nested_function_calls_are_not_attributed_to_outer_function(tmp_path: Path) -> None:
+    # Regression test: a call made only inside a nested `def inner(): ...`
+    # must not also show up as a call made by the enclosing function — the
+    # inner def is its own node with its own call graph.
+    p = _write(tmp_path, """
+def only_in_inner():
+    pass
+
+def outer():
+    def inner():
+        only_in_inner()
+    return inner
+""")
+    flow = build_static_flow(p)
+    assert flow.successors("outer") == []
+    assert flow.successors("outer.inner") == ["only_in_inner"]
+
+
+def test_syntax_error_raises_clean_value_error(tmp_path: Path) -> None:
+    p = _write(tmp_path, "def broken(: pass\n")
+    with pytest.raises(ValueError, match="Syntax error"):
+        build_static_flow(p)

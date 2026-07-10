@@ -202,7 +202,7 @@ def graph(
 
     try:
         root, manifest = graphviz.load_manifest(project)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
 
@@ -240,7 +240,7 @@ def flow(
     no_open: bool = typer.Option(False, "--no-open", help="With --ui, write the viewer file but don't launch a browser."),
     typecheck: bool = typer.Option(
         False, "--typecheck",
-        help="Run mypy and attach type-check diagnostics to nodes (requires `agentx-kit[typecheck]`).",
+        help="Run ruff (lint) + ty (type check) and attach diagnostics to nodes (requires `agentx-kit[typecheck]`).",
     ),
     serve: bool = typer.Option(
         False, "--serve",
@@ -258,14 +258,14 @@ def flow(
     file only) actually runs the file, so any `@agentx.flow.trace`-decorated
     functions are recorded with real call counts and timing. `--ui` renders
     an interactive 2D/3D graph viewer instead of text; `--typecheck` attaches
-    mypy diagnostics to it; `--serve` (single file only) starts a local
+    ruff + ty diagnostics to it; `--serve` (single file only) starts a local
     server so you can click Run in the viewer and watch it execute live.
 
     Examples:
 
         agentx flow                              # static call graph, whole project (cwd)
         agentx flow --ui                          # ...as an interactive 2D/3D viewer
-        agentx flow --ui --typecheck              # ...with mypy diagnostics attached
+        agentx flow --ui --typecheck              # ...with ruff + ty diagnostics attached
         agentx flow app.py                        # static call graph, one file
         agentx flow app.py --entry train_model -f mermaid
         agentx flow app.py --live                 # run it, show the real execution graph
@@ -323,9 +323,10 @@ def flow(
     diagnostics = None
     if typecheck:
         try:
-            import mypy  # noqa: F401
+            import ruff  # noqa: F401
+            import ty  # noqa: F401
         except ImportError:
-            console.print("[red]--typecheck needs mypy.[/] Install it with:")
+            console.print("[red]--typecheck needs ruff + ty.[/] Install them with:")
             console.print(
                 "    uv pip install 'agentx-kit[typecheck]'\n"
                 "    # or:  pip install 'agentx-kit[typecheck]'",
@@ -335,11 +336,11 @@ def flow(
 
         from .flow import typecheck as typecheck_lib
 
-        with console.status("[bold]Type-checking with mypy...[/]"):
-            file_diagnostics = typecheck_lib.run_mypy(path)
+        with console.status("[bold]Type-checking with ruff + ty...[/]"):
+            file_diagnostics = typecheck_lib.run_typecheck(path)
         diagnostics = typecheck_lib.map_diagnostics_to_nodes(graph_result, file_diagnostics)
         error_count = sum(1 for diags in diagnostics.values() for d in diags if d["severity"] == "error")
-        console.print(f"[dim]mypy: {error_count} error{'s' if error_count != 1 else ''}[/]")
+        console.print(f"[dim]ruff + ty: {error_count} error{'s' if error_count != 1 else ''}[/]")
 
     if serve:
         try:
@@ -978,14 +979,6 @@ def agent_deep(
     else:
         console.print(f"[red]Deep agent failed:[/] {result.error}")
         raise typer.Exit(1)
-
-
-# Top-level aliases for discoverability — `agentx research …` / `agentx run …` /
-# `agentx deep …` mirror the `agentx agent …` subcommands (a common point of
-# confusion).
-app.command("research")(agent_research)
-app.command("run")(agent_run)
-app.command("deep")(agent_deep)
 
 
 if __name__ == "__main__":

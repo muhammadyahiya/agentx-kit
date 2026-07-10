@@ -123,6 +123,55 @@ def test_concurrent_asyncio_tasks_do_not_corrupt_stack() -> None:
     assert edge.count == 3
 
 
+def test_generator_function_traced_across_full_iteration() -> None:
+    @trace
+    def counter():
+        yield 1
+        yield 2
+        yield 3
+
+    values = list(counter())
+    assert values == [1, 2, 3]
+    flow = get_current_flow()
+    assert flow.nodes["counter"].calls == 1
+    # The generator's body must actually run under the trace, not just be
+    # created — a naive `fn(*args, **kwargs)` wrapper returns the generator
+    # object immediately without executing any of it (see tracer.py's
+    # generator-aware wrapping).
+    assert ("START", "counter") in [(e.src, e.dst) for e in flow.edges]
+
+
+def test_generator_function_traced_when_not_fully_consumed() -> None:
+    @trace
+    def infinite_counter():
+        n = 0
+        while True:
+            yield n
+            n += 1
+
+    gen = infinite_counter()
+    assert next(gen) == 0
+    assert next(gen) == 1
+    gen.close()
+    flow = get_current_flow()
+    assert flow.nodes["infinite_counter"].calls == 1
+
+
+def test_async_generator_function_traced() -> None:
+    @trace
+    async def astream():
+        yield 1
+        yield 2
+
+    async def _consume():
+        return [x async for x in astream()]
+
+    values = asyncio.run(_consume())
+    assert values == [1, 2]
+    flow = get_current_flow()
+    assert flow.nodes["astream"].calls == 1
+
+
 def test_reset_trace_clears_state() -> None:
     @trace
     def a():

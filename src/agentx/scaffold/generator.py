@@ -292,11 +292,12 @@ def _write_manifest(target: Path, spec: ProjectSpec) -> Path:
     import json
 
     manifest = {
+        "manifest_version": 1,
         "name": spec.slug,
         "framework": spec.framework,
         "provider": spec.provider,
         "model": spec.model or get_spec(spec.provider).default_model,
-        "python_version": ">=3.10,<3.14",
+        "python_version": ">=3.10,<3.15",
         "agents": [a.name for a in spec.agents],
         "orchestration": spec.orchestration,
         "features": {
@@ -343,7 +344,10 @@ def generate_project(spec: ProjectSpec, target_dir: str | Path, overwrite: bool 
 
     target = Path(target_dir).expanduser().resolve()
     if target.exists() and any(target.iterdir()) and not overwrite:
-        raise FileExistsError(f"Target directory '{target}' exists and is not empty. Use overwrite=True.")
+        raise FileExistsError(
+            f"Target directory '{target}' exists and is not empty. "
+            "Pass --overwrite (CLI) or overwrite=True (API) to replace it."
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
 
     # Tailor the first agent + features to an inferred/explicit domain (mutates spec).

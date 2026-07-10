@@ -78,6 +78,29 @@ if __name__ == "__main__":
     assert types[-1] == "done"
 
 
+def test_default_run_reports_nonzero_exit_code_on_sys_exit(tmp_path: Path) -> None:
+    # Regression test: _serve_runner used to swallow SystemExit entirely, so
+    # a script calling sys.exit(1) still reported exit_code 0 to the browser.
+    p = _write(tmp_path, """
+import sys
+
+if __name__ == "__main__":
+    print("about to fail")
+    sys.exit(1)
+""")
+    app = build_app(build_static_flow(p), p)
+    client = TestClient(app)
+    token = _token(client)
+
+    run_id = client.post(f"/api/run?token={token}").json()["run_id"]
+    with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
+        events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
+
+    assert any(e["type"] == "stdout" and "about to fail" in e["text"] for e in events)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["exit_code"] == 1
+
+
 def test_stop_terminates_running_process(tmp_path: Path) -> None:
     p = _write(tmp_path, """
 import time
@@ -213,6 +236,35 @@ def test_terminal_command_for_non_package_python_file_runs_unmodified(tmp_path: 
     with client.stream("GET", f"/api/stream/{run_id}?token={token}") as resp:
         events = [json.loads(line[len("data:"):].strip()) for line in resp.iter_lines() if line.startswith("data:")]
     assert any(e["type"] == "stdout" and "standalone ran" in e["text"] for e in events)
+
+
+def test_finished_runs_are_swept_after_retention_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression test: `runs` used to grow forever (a `_Run` — Popen + Queue —
+    # per Run click, never removed). A run older than the retention window
+    # must be pruned the next time a run starts.
+    import time as time_mod
+
+    import agentx.flow.server as server_mod
+
+    monkeypatch.setattr(server_mod, "_RUN_RETENTION_SECONDS", 0)
+    p = _write(tmp_path, "def a():\n    pass\n")
+    app = build_app(build_static_flow(p), p)
+    client = TestClient(app)
+    token = _token(client)
+
+    first_run_id = client.post(f"/api/run?token={token}").json()["run_id"]
+    with client.stream("GET", f"/api/stream/{first_run_id}?token={token}") as resp:
+        list(resp.iter_lines())  # drain to completion so `done`/finished_at are set
+
+    assert first_run_id in app.state.runs
+    time_mod.sleep(0.05)  # ensure now - finished_at > 0 (the monkeypatched retention window)
+
+    second_run_id = client.post(f"/api/run?token={token}").json()["run_id"]
+    with client.stream("GET", f"/api/stream/{second_run_id}?token={token}") as resp:
+        list(resp.iter_lines())
+
+    assert first_run_id not in app.state.runs
+    assert second_run_id in app.state.runs
 
 
 def test_custom_command_runs_in_invocation_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

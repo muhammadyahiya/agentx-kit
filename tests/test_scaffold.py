@@ -190,6 +190,21 @@ def test_generate_refuses_nonempty_dir(tmp_path):
         generate_project(_spec(), tmp_path / "x")
 
 
+def test_generate_refuses_nonempty_dir_with_cli_and_api_hint(tmp_path):
+    (tmp_path / "x").mkdir()
+    (tmp_path / "x" / "keep.txt").write_text("hi")
+    with pytest.raises(FileExistsError, match="--overwrite"):
+        generate_project(_spec(), tmp_path / "x")
+
+
+def test_manifest_includes_version_field(tmp_path):
+    import json
+
+    result = generate_project(_spec(), tmp_path / "verspec", overwrite=True)
+    manifest = json.loads((result.target_dir / "agentx.json").read_text())
+    assert manifest["manifest_version"] == 1
+
+
 def test_env_example_lists_provider_vars(tmp_path):
     s = _spec(name="azbot", provider="azure")
     result = generate_project(s, tmp_path / "az", overwrite=True)

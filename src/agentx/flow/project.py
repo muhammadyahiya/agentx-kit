@@ -184,7 +184,13 @@ def build_project_flow(
 
     records: list[tuple[Path, ast.Module, str, bool]] = []
     for path in files:
-        source = path.read_text(encoding="utf-8")
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # Unreadable (permissions) or not-actually-UTF-8-text (binary file
+            # with a .py extension) — skip it rather than aborting the whole
+            # project walk over one bad file.
+            continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError:

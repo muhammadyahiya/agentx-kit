@@ -63,3 +63,32 @@ def test_syspath_is_restored_after_running(tmp_path: Path) -> None:
     before = list(sys.path)
     run_target(target)
     assert sys.path == before
+
+
+def test_running_init_py_directly_runs_main_guard_exactly_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    # Running pkg_init/__init__.py directly is a rare case, but must not
+    # crash, and its `if __name__ == "__main__":` block — the idiom every
+    # real target script uses — must fire exactly once (not zero, not twice).
+    target = _write(
+        tmp_path, "pkg_init/__init__.py",
+        "if __name__ == '__main__':\n    print('package init ran')\n",
+    )
+    run_target(target)
+    out = capsys.readouterr().out
+    assert out.count("package init ran") == 1
+
+
+def test_syspath_insert_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
+    import sys
+
+    _write(tmp_path, "pkg_repeat/__init__.py", "")
+    target = _write(tmp_path, "pkg_repeat/server.py", "if __name__ == '__main__':\n    pass\n")
+    root_str = str(tmp_path.resolve())
+    sys.path.insert(0, root_str)  # simulate the root already being on sys.path
+    try:
+        run_target(target)
+        assert sys.path.count(root_str) == 1
+    finally:
+        sys.path.remove(root_str)

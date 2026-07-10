@@ -212,13 +212,13 @@ def test_serve_with_out_rejected(tmp_path: Path) -> None:
     assert "--out" in result.output
 
 
-def test_typecheck_missing_mypy_prints_install_hint(tmp_path: Path, monkeypatch) -> None:
+def test_typecheck_missing_deps_prints_install_hint(tmp_path: Path, monkeypatch) -> None:
     import builtins
     real_import = builtins.__import__
 
     def fake_import(name, *args, **kwargs):
-        if name == "mypy":
-            raise ImportError("simulated: mypy not installed")
+        if name == "ruff":
+            raise ImportError("simulated: ruff not installed")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
@@ -229,8 +229,10 @@ def test_typecheck_missing_mypy_prints_install_hint(tmp_path: Path, monkeypatch)
 
 
 def test_typecheck_reports_error_count(tmp_path: Path) -> None:
-    pytest.importorskip("mypy")
+    pytest.importorskip("ruff")
+    pytest.importorskip("ty")
     p = _write(tmp_path, "bad.py", "def add(a: int, b: int) -> int:\n    return a + b\n\nresult: str = add(1, 2)\n")
     result = runner.invoke(app, ["flow", str(p), "--typecheck", "-f", "json"])
     assert result.exit_code == 0
-    assert "mypy: 1 error" in result.output
+    assert "ruff + ty:" in result.output
+    assert "error" in result.output
