@@ -162,6 +162,17 @@ def _full_source(
     return _snippet(file, lineno, lines_cache)
 
 
+def _def_end_lineno(file: str | None, lineno: int | None, tree_cache: dict[str, ast.Module | None]) -> int | None:
+    """The 1-indexed last line of the def/class starting at ``lineno``, if
+    resolvable — lets the side panel's editor replace exactly the lines that
+    ``_full_source`` displayed, no more and no less."""
+    tree = _get_tree(file, tree_cache)
+    if tree is None or lineno is None:
+        return None
+    node = _find_def(tree, lineno)
+    return getattr(node, "end_lineno", None) if node is not None else None
+
+
 def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> dict:
     tree_cache: dict[str, ast.Module | None] = {}
     lines_cache: dict[str, list[str] | None] = {}
@@ -184,6 +195,7 @@ def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> di
             "parent": node.parent if node.parent in flow.nodes else None,
             "file": node.file,
             "lineno": node.lineno,
+            "end_lineno": _def_end_lineno(node.file, node.lineno, tree_cache),
             "calls": node.calls,
             "total_time": node.total_time,
             "full_source": _full_source(node.file, node.lineno, tree_cache, lines_cache),
@@ -240,11 +252,21 @@ def render_html(
             f"<script>\n{_read_vendor(name)}\n</script>" for name in _VENDOR_FILES
         )
     title = f"agentx flow — {flow.entry or flow.scope}"
+    # Monaco (the side panel's code editor) is ~5MB — only load it in --serve
+    # mode, where editing is actually possible (there's a backend to save
+    # to). The offline --ui file stays a single lightweight document with a
+    # read-only <pre> panel, same as before.
+    monaco_scripts = (
+        '<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>\n'
+        '<script>window.AGENTX_MONACO_VS_URL = "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs";</script>'
+        if serve else ""
+    )
     template = _viewer_env().get_template("viewer.html.j2")
     return template.render(
         title=title,
         css=_CSS,
         vendor_scripts=vendor_scripts,
+        monaco_scripts=monaco_scripts,
         app_js=_read_viewer("app.js"),
         graph_data=payload_json,
     )
@@ -300,6 +322,13 @@ label.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 #logPane .btn-mini { background: none; border: none; color: #aaa; cursor: pointer; font-size: 13px; padding: 0 6px; }
 #logBody { flex: 1; overflow: auto; padding: 6px 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
 .log-line { white-space: pre-wrap; line-height: 1.5; }
+#panel .src-toolbar { display: flex; align-items: center; gap: 6px; margin: 10px 0 4px; }
+#panel .src-toolbar .section-title { margin: 0; flex: 1; }
+#panel .src-toolbar .btn { padding: 2px 8px; font-size: 10px; }
+#panel .btn.save { background: #2ca02c; color: #fff; border-color: #2ca02c; }
+#panel .btn.cancel { background: #EE6677; color: #fff; border-color: #EE6677; }
+#panel .stale-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 600; background: #CCBB44; color: #1a1a1a; }
+#monacoHost { height: 320px; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
 .log-stdout { color: #d8d8d8; }
 .log-stderr { color: #ff8080; }
 .log-trace { color: #7ec8e3; }

@@ -167,6 +167,34 @@ def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, lis
         threading.Thread(target=_run_to_completion, args=(run,), daemon=True).start()
         return {"run_id": run_id}
 
+    @app.post("/api/save")
+    async def save_node_source(request: Request) -> dict:
+        """Overwrite a node's def/class body in place, from the side panel's
+        editor. ``lineno``/``end_lineno`` must match what :mod:`htmlgen` sent
+        for that node (the exact span ``full_source`` displayed) — this isn't
+        a general file-write endpoint, just "put back what you showed me,
+        edited"."""
+        _check_token(request)
+        body = await request.json()
+        file = body.get("file")
+        lineno = body.get("lineno")
+        end_lineno = body.get("end_lineno")
+        source = body.get("source")
+        if not file or not lineno or not end_lineno or source is None:
+            raise HTTPException(status_code=400, detail="file, lineno, end_lineno and source are required")
+        path = Path(file)
+        if not path.is_absolute():
+            path = invocation_cwd / path
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail=f"no such file: {file}")
+        lines = path.read_text().splitlines(keepends=True)
+        if not (1 <= lineno <= end_lineno <= len(lines)):
+            raise HTTPException(status_code=400, detail="lineno/end_lineno out of range for current file")
+        new_body = source if source.endswith("\n") else source + "\n"
+        lines[lineno - 1 : end_lineno] = [new_body]
+        path.write_text("".join(lines))
+        return {"ok": True}
+
     @app.post("/api/stop/{run_id}")
     def stop_run(run_id: str, request: Request) -> dict:
         _check_token(request)
