@@ -176,13 +176,29 @@
   // Click node -> side panel.
   const panel = document.getElementById('panel');
   const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  // Nodes whose source was saved through the editor this session — their
+  // in-memory DATA.nodes entry is stale (it still reflects the pre-edit
+  // AST) until the page is reloaded, so we flag it rather than pretend
+  // nothing changed.
+  const editedIds = new Set();
+  const canEdit = !!(DATA.serve && window.require); // monaco loader present only in --serve
+  let monacoReady = null;
+  function loadMonaco() {
+    if (monacoReady) return monacoReady;
+    monacoReady = new Promise(resolve => {
+      window.require.config({ paths: { vs: window.AGENTX_MONACO_VS_URL } });
+      window.require(['vs/editor/editor.main'], () => resolve(window.monaco));
+    });
+    return monacoReady;
+  }
+
   function showPanel(n) {
     const d = DATA.nodes.find(x => x.id === n.data('id'));
     if (!d) return;
     let meta = d.kind;
     if (d.file) meta += ` · ${d.file}${d.lineno ? ':' + d.lineno : ''}`;
     if (d.calls) meta += ` · ${d.calls} call${d.calls === 1 ? '' : 's'}, ${(d.total_time * 1000).toFixed(1)}ms`;
-    let html = `<h2>${d.id}</h2><div class="meta">${meta}</div>`;
+    let html = `<h2>${d.id}${editedIds.has(d.id) ? '<span class="stale-badge" title="Saved this session — reload to refresh the graph/analysis">edited</span>' : ''}</h2><div class="meta">${meta}</div>`;
     if (d.signature) html += `<div class="sig"><code>${esc(d.signature)}</code></div>`;
     if (d.type_errors && d.type_errors.length) {
       html += `<div class="section-title">Type errors (${d.type_errors.length})</div>` +
@@ -195,11 +211,59 @@
         d.schema.map(f => `<tr><td>${esc(f.name)}</td><td>${esc(f.type)}</td><td>${f.default !== null ? esc(f.default) : '—'}</td><td>${f.required ? 'yes' : ''}</td></tr>`).join('') +
         `</table>`;
     }
-    if (d.full_source) html += `<div class="section-title">Source</div><pre>${esc(d.full_source)}</pre>`;
+    if (d.full_source) {
+      const editable = canEdit && d.file && d.lineno && d.end_lineno;
+      html += `<div class="src-toolbar"><span class="section-title">Source</span>` +
+        (editable ? `<button class="btn" id="editSrcBtn">✎ Edit</button>` : '') + `</div>`;
+      html += `<pre id="srcView">${esc(d.full_source)}</pre>`;
+    }
     html += `<p class="hint">Click a second node to highlight the call path between them.</p>`;
     panel.innerHTML = html;
+
+    if (d.full_source && canEdit && d.file && d.lineno && d.end_lineno) {
+      document.getElementById('editSrcBtn').addEventListener('click', () => openEditor(d));
+    }
   }
   panel.innerHTML = '<p class="hint">Click a node to inspect it. Click two nodes to highlight the path between them.</p>';
+
+  // Edit-in-place: swap the <pre> for a Monaco editor, Save posts back to
+  // /api/save which overwrites exactly the def/class span htmlgen sent.
+  async function openEditor(d) {
+    const srcView = document.getElementById('srcView');
+    const toolbar = document.querySelector('#panel .src-toolbar');
+    toolbar.innerHTML = `<span class="section-title">Source</span>
+      <button class="btn save" id="saveSrcBtn">Save</button>
+      <button class="btn cancel" id="cancelSrcBtn">Cancel</button>`;
+    const host = document.createElement('div');
+    host.id = 'monacoHost';
+    srcView.replaceWith(host);
+
+    const monaco = await loadMonaco();
+    const lang = /\.py$/.test(d.file) ? 'python' : 'plaintext';
+    const editor = monaco.editor.create(host, {
+      value: d.full_source, language: lang, automaticLayout: true,
+      theme: document.documentElement.className === 'dark' ? 'vs-dark' : 'vs',
+      minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false,
+    });
+
+    document.getElementById('cancelSrcBtn').addEventListener('click', () => showPanel(cy.getElementById(d.id)));
+    document.getElementById('saveSrcBtn').addEventListener('click', async () => {
+      const source = editor.getValue();
+      const res = await fetch(`/api/save?token=${DATA.serve_token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: d.file, lineno: d.lineno, end_lineno: d.end_lineno, source }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert('Save failed: ' + (err.detail || res.statusText));
+        return;
+      }
+      d.full_source = source;
+      editedIds.add(d.id);
+      showPanel(cy.getElementById(d.id));
+    });
+  }
 
   // Two-click path highlight (directed BFS over the *current level's* edges,
   // kept up to date by rebuildAdjacency() every time the detail level changes).
