@@ -235,6 +235,18 @@ def flow(
     ui: bool = typer.Option(False, "--ui", help="Open an interactive 2D/3D DAG viewer in your browser instead of printing text."),
     out: Path = typer.Option(None, "--out", "-o", help="With --ui, write the viewer HTML here instead of a temp file."),
     no_open: bool = typer.Option(False, "--no-open", help="With --ui, write the viewer file but don't launch a browser."),
+    typecheck: bool = typer.Option(
+        False, "--typecheck",
+        help="Run mypy and attach type-check diagnostics to nodes (requires `agentx-kit[typecheck]`).",
+    ),
+    serve: bool = typer.Option(
+        False, "--serve",
+        help=(
+            "Start a local live-execution server: click Run in the viewer to "
+            "execute the file and stream logs (implies --ui; single file only; "
+            "requires `agentx-kit[server]`)."
+        ),
+    ),
 ) -> None:
     """Show a Python file's — or a whole project's — function-call flow as a DAG.
 
@@ -242,15 +254,19 @@ def flow(
     with `ast` — nothing is imported or executed. Live mode (`--live`, single
     file only) actually runs the file, so any `@agentx.flow.trace`-decorated
     functions are recorded with real call counts and timing. `--ui` renders
-    an interactive 2D/3D graph viewer instead of text.
+    an interactive 2D/3D graph viewer instead of text; `--typecheck` attaches
+    mypy diagnostics to it; `--serve` (single file only) starts a local
+    server so you can click Run in the viewer and watch it execute live.
 
     Examples:
 
         agentx flow                              # static call graph, whole project (cwd)
         agentx flow --ui                          # ...as an interactive 2D/3D viewer
+        agentx flow --ui --typecheck              # ...with mypy diagnostics attached
         agentx flow app.py                        # static call graph, one file
         agentx flow app.py --entry train_model -f mermaid
         agentx flow app.py --live                 # run it, show the real execution graph
+        agentx flow app.py --serve                # run it live from the browser, streamed logs
         agentx flow app.py -f dot > flow.dot && dot -Tsvg flow.dot -o flow.svg
     """
     from . import flow as flow_lib
@@ -258,6 +274,18 @@ def flow(
     if not path.exists():
         console.print(f"[red]Path not found:[/] {path}")
         raise typer.Exit(1)
+
+    if serve:
+        if live:
+            console.print("[red]--live and --serve are two different execution modes — pick one.[/]")
+            raise typer.Exit(1)
+        if path.is_dir():
+            console.print("[red]--serve only supports a single file, not a directory.[/]")
+            raise typer.Exit(1)
+        if out:
+            console.print("[red]--serve starts a live server rather than writing a file — --out isn't used with it.[/]")
+            raise typer.Exit(1)
+        ui = True
 
     if live:
         if path.is_dir():
@@ -289,11 +317,75 @@ def flow(
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(1) from exc
 
+    diagnostics = None
+    if typecheck:
+        try:
+            import mypy  # noqa: F401
+        except ImportError:
+            console.print("[red]--typecheck needs mypy.[/] Install it with:")
+            console.print(
+                "    uv pip install 'agentx-kit[typecheck]'\n"
+                "    # or:  pip install 'agentx-kit[typecheck]'",
+                markup=False,
+            )
+            raise typer.Exit(1) from None
+
+        from .flow import typecheck as typecheck_lib
+
+        with console.status("[bold]Type-checking with mypy...[/]"):
+            file_diagnostics = typecheck_lib.run_mypy(path)
+        diagnostics = typecheck_lib.map_diagnostics_to_nodes(graph_result, file_diagnostics)
+        error_count = sum(1 for diags in diagnostics.values() for d in diags if d["severity"] == "error")
+        console.print(f"[dim]mypy: {error_count} error{'s' if error_count != 1 else ''}[/]")
+
+    if serve:
+        try:
+            import fastapi  # noqa: F401
+            import sse_starlette  # noqa: F401
+            import uvicorn
+        except ImportError:
+            console.print("[red]--serve needs the server extras.[/] Install them with:")
+            console.print(
+                "    uv pip install 'agentx-kit[server]'\n"
+                "    # or:  pip install 'agentx-kit[server]'",
+                markup=False,
+            )
+            raise typer.Exit(1) from None
+
+        import socket
+        import threading
+        import time
+        import webbrowser
+
+        from .flow import server as server_lib
+
+        def _free_port(preferred: int) -> int:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(("127.0.0.1", preferred))
+                    return preferred
+                except OSError:
+                    s.bind(("127.0.0.1", 0))
+                    return s.getsockname()[1]
+
+        port = _free_port(8765)
+        url = f"http://127.0.0.1:{port}/"
+        app_obj = server_lib.build_app(graph_result, path, diagnostics=diagnostics)
+        console.print(f"[green]Serving at[/] {url}  [dim](binds to 127.0.0.1 only; Ctrl+C to stop)[/]")
+        console.print("[yellow]Clicking Run in the viewer executes this file on your machine.[/]")
+        if not no_open:
+            def _open_when_ready() -> None:
+                time.sleep(0.6)
+                webbrowser.open(url)
+            threading.Thread(target=_open_when_ready, daemon=True).start()
+        uvicorn.run(app_obj, host="127.0.0.1", port=port, log_level="warning")
+        return
+
     if ui:
         import tempfile
         import webbrowser
 
-        html = flow_lib.render_html(graph_result)
+        html = flow_lib.render_html(graph_result, diagnostics=diagnostics)
         if out:
             out.write_text(html, encoding="utf-8")
             out_path = out

@@ -35,6 +35,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 _flow: Flow = Flow(kind="runtime")
 _stack: ContextVar[list[str]] = ContextVar("agentx_flow_stack", default=[])
+_event_hook: Callable[[dict[str, Any]], None] | None = None
 
 
 def get_current_flow() -> Flow:
@@ -48,13 +49,26 @@ def reset_trace() -> None:
     _flow = Flow(kind="runtime")
 
 
+def set_event_hook(fn: Callable[[dict[str, Any]], None] | None) -> None:
+    """Register a callback invoked with a ``{"type": "trace_call"|"trace_return", ...}``
+    dict on every traced call/return, in addition to the normal :class:`Flow`
+    bookkeeping. Used by ``agentx flow --serve`` to stream execution progress
+    to a browser; has no effect on `--live`/library use of `@trace` when unset
+    (the default)."""
+    global _event_hook
+    _event_hook = fn
+
+
 def _enter(name: str) -> tuple[list[str], float]:
     stack_before = list(_stack.get())
     caller = stack_before[-1] if stack_before else "START"
     _flow.add_node(name)
     _flow.add_edge(caller, name)
     _stack.set([*stack_before, name])
-    return stack_before, time.perf_counter()
+    start = time.perf_counter()
+    if _event_hook is not None:
+        _event_hook({"type": "trace_call", "node": name, "ts": time.time()})
+    return stack_before, start
 
 
 def _exit(name: str, stack_before: list[str], start: float) -> None:
@@ -64,6 +78,8 @@ def _exit(name: str, stack_before: list[str], start: float) -> None:
         node.calls += 1
         node.total_time += elapsed
     _stack.set(stack_before)
+    if _event_hook is not None:
+        _event_hook({"type": "trace_return", "node": name, "elapsed_ms": elapsed * 1000, "ts": time.time()})
 
 
 def trace(func: F | None = None, *, name: str | None = None) -> F:
@@ -105,4 +121,4 @@ def trace(func: F | None = None, *, name: str | None = None) -> F:
     return _decorate  # type: ignore[return-value]
 
 
-__all__ = ["trace", "get_current_flow", "reset_trace"]
+__all__ = ["trace", "get_current_flow", "reset_trace", "set_event_hook"]

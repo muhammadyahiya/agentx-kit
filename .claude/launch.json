@@ -12,6 +12,12 @@
       "runtimeExecutable": "/Users/yahiya/Documents/agentx/.venv/bin/python",
       "runtimeArgs": ["-m", "http.server", "8935", "--directory", "/Users/yahiya/Documents/agentx/.claude/scratch_preview"],
       "port": 8935
+    },
+    {
+      "name": "agentx-flow-serve-preview",
+      "runtimeExecutable": "/Users/yahiya/Documents/agentx/.venv/bin/python",
+      "runtimeArgs": ["-m", "agentx.cli", "flow", "examples/flow_demo.py", "--serve", "--no-open"],
+      "port": 8765
     }
   ]
 }

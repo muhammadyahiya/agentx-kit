@@ -1,7 +1,7 @@
 [project]
 # PyPI distribution name (import name + CLI stay `agentx`; `agentx` was taken).
 name = "agentx-kit"
-version = "0.15.0"
+version = "0.16.0"
 description = "An open-source, provider-agnostic agentic framework + interactive project scaffolder for LangChain and CrewAI. Pick your LLM provider, agents, RAG, memory, MCP tools and skills — generate a ready-to-run uv project."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -69,6 +69,7 @@ observability = [
 server = ["fastapi>=0.110.0", "uvicorn[standard]>=0.29.0", "sse-starlette>=2.0.0"]
 dashboard = ["streamlit>=1.40.0", "tiktoken>=0.7.0", "pandas>=2.0.0"]
 connector = ["mcp>=1.2.0"]
+typecheck = ["mypy>=1.8.0"]
 
 # ---- Voice (STT/TTS) — local-first, no key required ----
 voice = ["faster-whisper>=1.0.0", "edge-tts>=6.1.0", "pyttsx3>=2.90"]
@@ -92,6 +93,7 @@ all = [
     "streamlit>=1.40.0", "tiktoken>=0.7.0", "pandas>=2.0.0",
     "mcp>=1.2.0",
     "faster-whisper>=1.0.0", "edge-tts>=6.1.0", "pyttsx3>=2.90",
+    "mypy>=1.8.0",
 ]
 dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0"]
 

@@ -53,7 +53,7 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack) |
 | `agentx providers` | List LLM providers + required env vars |
 | `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
-| `agentx flow [path] [--live] [--ui] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project (static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer) |
+| `agentx flow [path] [--live\|--serve] [--ui] [--typecheck] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project — static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer, `--typecheck` mypy diagnostics, `--serve` click-to-run with live logs |
 | `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
 | `agentx agent run/research/deep` | Run an autonomous, research, or deep agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
@@ -408,10 +408,34 @@ agentx flow --ui --no-open -o flow.html   # write it without launching a browser
 
 Nodes are colored by kind (function / class / module / external); a
 Modules → Classes → Full detail control collapses large projects down to a
-coarse module-to-module graph by default; click a node for its source
-snippet and file:line, click two nodes to highlight the call path between
-them, search by name, and toggle a secondary experimental 3D view (layered
-by call depth). Dark/light follows your system theme with a manual override.
+coarse module-to-module graph by default; click a node for its full source
+and file:line, click two nodes to highlight the call path between them,
+search by name, and toggle a secondary experimental 3D view (layered by
+call depth). Dark/light follows your system theme with a manual override.
+
+### Type-checking, schemas & live execution (opt-in)
+Every node's side panel always shows its declared type-hinted signature and
+full source, plus a fields table for classes that look like Pydantic
+`BaseModel`s — all pure `ast`, no execution, no new dependency. Two more
+capabilities are opt-in:
+
+```bash
+agentx flow --ui --typecheck        # attach mypy diagnostics to nodes (red badge + list)
+agentx flow app.py --serve          # click Run in the browser, watch it execute live
+```
+
+- **`--typecheck`** runs [mypy](https://mypy.readthedocs.io/) in-process and
+  maps its diagnostics onto the nearest node — an inline red border marks
+  nodes with errors, and the side panel lists them. Requires
+  `pip install "agentx-kit[typecheck]"`.
+- **`--serve`** (single file only) starts a small local server — click
+  **Run** in the viewer to execute the file as a subprocess, with stdout/
+  stderr and per-function call/return events streamed live into a log pane
+  and pulsed onto the graph as they happen; **Stop** ends it. It binds to
+  `127.0.0.1` only and every action requires a random per-session token
+  embedded in the page, but clicking Run **does execute real code on your
+  machine** — only point it at code you trust. Requires
+  `pip install "agentx-kit[server]"`.
 
 | Building block | What it does |
 |---|---|
@@ -419,7 +443,9 @@ by call depth). Dark/light follows your system theme with a manual override.
 | `build_project_flow(root, entry=None)` | Parse every file under a directory, resolving cross-file calls through each file's imports |
 | `trace` / `get_current_flow()` | Decorate functions to record real call order, counts, and timing (async-safe) |
 | `render_ascii` / `render_mermaid` / `render_json` / `render_dot` | One shape, four text export formats |
-| `render_html` | The interactive 2D/3D viewer (`--ui`) |
+| `render_html` | The interactive 2D/3D viewer (`--ui`), with optional `diagnostics`/`serve` params |
+| `agentx.flow.typecheck.run_mypy` | mypy wrapper behind `--typecheck` |
+| `agentx.flow.server.build_app` | The local FastAPI app behind `--serve` |
 
 Try it: `python examples/flow_demo.py`.
 
@@ -507,7 +533,8 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `rag` | `langchain-community`, `chromadb` | RAG |
 | `mcp` | `langchain-mcp-adapters`, `mcp` | MCP client tools + built-in MCP server templates |
 | `observability` | `opentelemetry-*`, `openinference-*` | tracing |
-| `server` | `fastapi`, `uvicorn` | serving |
+| `server` | `fastapi`, `uvicorn` | serving; also powers `agentx flow --serve` |
+| `typecheck` | `mypy` | `agentx flow --typecheck` |
 | `voice` | `faster-whisper`, `edge-tts`, `pyttsx3` | Speech-to-Text + Text-to-Speech |
 | `streamlit` | `streamlit` | Streamlit chat/voice UI |
 | `dashboard` | `streamlit`, `tiktoken`, `pandas` | prompt observability dashboard |
