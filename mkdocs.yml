@@ -1,0 +1,115 @@
+site_name: AgentX-Kit
+site_description: A provider-agnostic agentic framework + interactive project scaffolder for LangChain & CrewAI.
+site_url: https://muhammadyahiya.github.io/agentx-kit/
+repo_name: muhammadyahiya/agentx-kit
+repo_url: https://github.com/muhammadyahiya/agentx-kit
+edit_uri: edit/main/docs/
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/muhammadyahiya/agentx-kit
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/agentx-kit/
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quickstart: quickstart.md
+      - Providers: providers.md
+  - CLI Reference:
+      - Overview: cli/index.md
+      - new: cli/new.md
+      - graph: cli/graph.md
+      - validate: cli/validate.md
+      - upgrade: cli/upgrade.md
+      - flow: cli/flow.md
+      - rag: cli/rag.md
+      - agent: cli/agent.md
+      - prompt: cli/prompt.md
+      - dashboard: cli/dashboard.md
+      - cache: cli/cache.md
+      - mcp: cli/mcp.md
+      - providers / version: cli/misc.md
+  - Features:
+      - Project scaffolding: features/scaffolding.md
+      - Prompts management: features/prompts.md
+      - Prompt dashboard: features/dashboard.md
+      - MCP connector: features/mcp-connector.md
+      - MCP tool templates: features/mcp-tools.md
+      - Deep agents: features/deep-agents.md
+      - Flow — code as a DAG: features/flow-dag.md
+      - Editor & assistant integrations: features/editor-integrations.md
+      - Response caching: features/caching.md
+      - Enterprise pack: features/enterprise.md
+  - Library usage: library-usage.md
+  - Release notes:
+      - Overview: releases/index.md
+      - v1.0.0: releases/1.0.0.md
+      - v0.17.1: releases/0.17.1.md
+      - v0.17.0: releases/0.17.0.md
+      - v0.16.0: releases/0.16.0.md
+      - v0.15.0: releases/0.15.0.md
+      - v0.12.0: releases/0.12.0.md
