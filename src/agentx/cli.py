@@ -292,10 +292,10 @@ def flow(
             console.print("[red]--live only supports a single file, not a directory.[/]")
             raise typer.Exit(1)
         flow_lib.reset_trace()
-        import runpy
+        from .flow.execrun import run_target
 
         try:
-            runpy.run_path(str(path), run_name="__main__")
+            run_target(path)
         except SystemExit:
             pass
         except Exception as exc:  # noqa: BLE001

@@ -431,11 +431,23 @@ agentx flow app.py --serve          # click Run in the browser, watch it execute
 - **`--serve`** (single file only) starts a small local server — click
   **Run** in the viewer to execute the file as a subprocess, with stdout/
   stderr and per-function call/return events streamed live into a log pane
-  and pulsed onto the graph as they happen; **Stop** ends it. It binds to
-  `127.0.0.1` only and every action requires a random per-session token
-  embedded in the page, but clicking Run **does execute real code on your
+  and pulsed onto the graph as they happen; **Stop** ends it. A command box
+  in the same log pane doubles as a minimal terminal — type any command
+  (e.g. `python main.py`) and it runs the same way; if it's `python
+  <file>.py` and that file is part of a package, it's run the same
+  package-aware way the Run button does (so relative imports inside it
+  resolve — see below), gaining trace events too. Binds to `127.0.0.1` only
+  and every action requires a random per-session token embedded in the page,
+  but clicking Run/typing a command **does execute real code on your
   machine** — only point it at code you trust. Requires
   `pip install "agentx-kit[server]"`.
+
+Both `--live` and `--serve` run the target file the same *package-aware* way
+regardless of where you invoke `agentx flow` from: if the file sits inside a
+package (its directory has an `__init__.py`), it's run as that module (like
+`python -m pkg.module`) rather than as a bare script, so `from .sibling
+import x`-style relative imports inside it resolve correctly instead of
+failing with "attempted relative import with no known parent package".
 
 | Building block | What it does |
 |---|---|
