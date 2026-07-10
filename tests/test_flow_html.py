@@ -10,7 +10,7 @@ from agentx.flow.model import Flow, FlowNode
 
 
 def _embedded_data(html: str) -> dict:
-    m = re.search(r"const DATA = (\{.*?\});\s*\n\s*const COLORS", html, re.S)
+    m = re.search(r"window\.AGENTX_FLOW_DATA = (\{.*?\});", html, re.S)
     assert m, "graph JSON payload not found in generated HTML"
     return json.loads(m.group(1))
 
@@ -192,3 +192,21 @@ def test_serve_true_embeds_token() -> None:
     data = _embedded_data(html)
     assert data["serve"] is True
     assert data["serve_token"] == "secret123"
+
+
+def test_cdn_false_by_default_inlines_vendor_js() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow)
+    assert "cytoscape" in html  # inlined library source present
+    assert "cdn.jsdelivr.net" not in html
+
+
+def test_cdn_true_references_cdn_instead_of_inlining() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow, cdn=True)
+    assert "cdn.jsdelivr.net" in html
+    assert 'src="https://cdn.jsdelivr.net' in html
+    # The app's own logic must still be inlined (only the vendor libs are CDN'd).
+    assert "AGENTX_FLOW_DATA" in html

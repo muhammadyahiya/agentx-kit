@@ -1,7 +1,16 @@
 """Tests for agentx.flow.render — ascii/mermaid/json/dot renderers."""
 from __future__ import annotations
 
-from agentx.flow import Flow, render_ascii, render_dot, render_json, render_mermaid
+from agentx.flow import (
+    Flow,
+    available_renderers,
+    get_renderer,
+    register_renderer,
+    render_ascii,
+    render_dot,
+    render_json,
+    render_mermaid,
+)
 
 
 def _linear_flow() -> Flow:
@@ -100,3 +109,32 @@ class TestRenderDot:
         flow.add_node('weird"name')
         text = render_dot(flow)
         assert '"weird' in text  # doesn't crash / produce invalid dot syntax
+
+
+class TestRendererRegistry:
+    def test_builtin_renderers_are_registered(self) -> None:
+        names = available_renderers()
+        assert {"ascii", "mermaid", "json", "dot"} <= set(names)
+
+    def test_get_renderer_returns_the_matching_function(self) -> None:
+        assert get_renderer("ascii") is render_ascii
+        assert get_renderer("mermaid") is render_mermaid
+        assert get_renderer("json") is render_json
+        assert get_renderer("dot") is render_dot
+
+    def test_get_renderer_returns_none_for_unknown_name(self) -> None:
+        assert get_renderer("does-not-exist") is None
+
+    def test_register_renderer_adds_a_new_format(self) -> None:
+        def _yaml_ish(flow: Flow) -> str:
+            return "\n".join(f"- {name}" for name in flow.nodes)
+
+        register_renderer("yaml_ish_test_format", _yaml_ish)
+        try:
+            assert "yaml_ish_test_format" in available_renderers()
+            flow = Flow()
+            flow.add_node("a")
+            assert get_renderer("yaml_ish_test_format")(flow) == "- a"
+        finally:
+            from agentx.flow.render import _RENDERERS
+            del _RENDERERS["yaml_ish_test_format"]

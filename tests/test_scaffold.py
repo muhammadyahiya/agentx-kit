@@ -205,6 +205,26 @@ def test_manifest_includes_version_field(tmp_path):
     assert manifest["manifest_version"] == 1
 
 
+def test_generate_includes_tests_smoke_test(tmp_path):
+    s = _spec(name="testsbot", framework="langgraph", provider="openai")
+    result = generate_project(s, tmp_path / "testsbot", overwrite=True)
+    root = result.target_dir
+    test_file = root / "tests" / "test_main.py"
+    assert test_file.exists()
+    content = test_file.read_text()
+    assert "from testsbot.graph import run_text" in content
+    assert "def test_run_text_is_callable" in content
+    pyproject = (root / "pyproject.toml").read_text()
+    assert "pytest" in pyproject
+
+
+def test_generate_crewai_tests_smoke_test_imports_crew(tmp_path):
+    s = _spec(name="crewtestsbot", framework="crewai", provider="openai")
+    result = generate_project(s, tmp_path / "crewtestsbot", overwrite=True)
+    content = (result.target_dir / "tests" / "test_main.py").read_text()
+    assert "from crewtestsbot.crew import run_text" in content
+
+
 def test_env_example_lists_provider_vars(tmp_path):
     s = _spec(name="azbot", provider="azure")
     result = generate_project(s, tmp_path / "az", overwrite=True)

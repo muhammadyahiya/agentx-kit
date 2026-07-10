@@ -26,6 +26,15 @@ uv run python -m {{ pkg }}.main
 uv run uvicorn {{ pkg }}.server:app --reload
 {% endif %}
 ```
+
+## Test
+```bash
+uv sync --extra dev
+uv run pytest
+```
+A smoke test (`tests/test_main.py`) checks the project imports cleanly and
+exposes a callable `run_text` — no API key or network access needed. Add
+your own tests alongside it as the project grows.
 {% if spec.framework == 'langgraph' %}
 Uses LangGraph's dev server too: `uvx langgraph dev` (the compiled graph is
 `{{ pkg }}.graph:graph`).

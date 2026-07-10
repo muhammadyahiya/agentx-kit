@@ -13,8 +13,15 @@ from pathlib import Path
 
 
 @dataclass
-class Flow:
-    """A minimal node/edge graph derived from the manifest."""
+class ManifestFlow:
+    """A minimal node/edge graph derived from the manifest.
+
+    Deliberately distinct from :class:`agentx.flow.model.Flow` — this shape
+    (``nodes: list[str]``, ``edges: list[tuple[str, str]]``) mirrors the tiny
+    agent-orchestration graph in ``agentx.json``, not the AST-derived
+    function-call graph the ``flow`` subsystem builds. Sharing the name
+    ``Flow`` with that unrelated, incompatible type was a source of
+    confusion for anyone importing both modules."""
 
     nodes: list[str] = field(default_factory=list)
     edges: list[tuple[str, str]] = field(default_factory=list)  # (src, dst)
@@ -63,13 +70,13 @@ def _load_prompts(root: Path) -> dict:
     return {}
 
 
-def build_flow(manifest: dict) -> Flow:
+def build_flow(manifest: dict) -> ManifestFlow:
     """Derive the node/edge flow, mirroring the generated graph.py wiring."""
     agents = manifest.get("agents", []) or ["assistant"]
     orchestration = manifest.get("orchestration", "supervisor")
     framework = manifest.get("framework", "langgraph")
 
-    flow = Flow()
+    flow = ManifestFlow()
 
     if framework == "crewai":
         # CrewAI runs a sequential crew.
@@ -126,7 +133,7 @@ def _feature_summary(manifest: dict) -> list[str]:
     return bits
 
 
-def render_ascii(manifest: dict, flow: Flow) -> str:
+def render_ascii(manifest: dict, flow: ManifestFlow) -> str:
     """Human-readable tree + flow summary."""
     name = manifest.get("name", "project")
     framework = manifest.get("framework", "langgraph")
@@ -157,7 +164,7 @@ def render_ascii(manifest: dict, flow: Flow) -> str:
     return "\n".join(lines)
 
 
-def _flow_oneline(flow: Flow, manifest: dict) -> str:
+def _flow_oneline(flow: ManifestFlow, manifest: dict) -> str:
     orchestration = manifest.get("orchestration", "")
     agents = manifest.get("agents", [])
     if manifest.get("framework") == "crewai" or orchestration == "sequential":
@@ -170,7 +177,7 @@ def _flow_oneline(flow: Flow, manifest: dict) -> str:
     return f"START → {name} ⇄ tools → END"
 
 
-def render_mermaid(manifest: dict, flow: Flow) -> str:
+def render_mermaid(manifest: dict, flow: ManifestFlow) -> str:
     """Mermaid ``graph TD`` text (renderable in the VS Code webview / GitHub)."""
     lines = ["graph TD"]
     seen = set()
@@ -186,7 +193,7 @@ def _mm(node: str) -> str:
     return f"{node}[{node}]"
 
 
-def render_json(manifest: dict, flow: Flow) -> dict:
+def render_json(manifest: dict, flow: ManifestFlow) -> dict:
     return {
         "name": manifest.get("name"),
         "framework": manifest.get("framework"),

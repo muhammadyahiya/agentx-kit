@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import ast
 
-from agentx.flow.schema import extract_pydantic_fields
+from agentx.flow.schema import build_class_index, extract_pydantic_fields
 
 
 def _class_lineno(tree: ast.Module) -> int:
@@ -61,3 +61,22 @@ class Empty(BaseModel):
     pass
 """)
     assert extract_pydantic_fields(tree, _class_lineno(tree)) == []
+
+
+def test_precomputed_class_index_gives_same_result() -> None:
+    tree = ast.parse("""
+from pydantic import BaseModel
+
+class A(BaseModel):
+    x: int
+
+class B(BaseModel):
+    y: str
+""")
+    index = build_class_index(tree)
+    linenos = sorted(index)
+    assert len(linenos) == 2
+    a_fields = extract_pydantic_fields(tree, linenos[0], index)
+    b_fields = extract_pydantic_fields(tree, linenos[1], index)
+    assert a_fields == [{"name": "x", "type": "int", "default": None, "required": True}]
+    assert b_fields == [{"name": "y", "type": "str", "default": None, "required": True}]

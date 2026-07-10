@@ -50,10 +50,12 @@ Prefer guided? Just run `agentx new` (interactive wizard) or
 | Command | What it does |
 |---|---|
 | `agentx new` | Interactive wizard → scaffold a uv project |
-| `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack) |
+| `agentx new --yes [opts]` | Non-interactive scaffold (`--enterprise` for the full pack; `--list-frameworks`/`--list-providers` to discover valid ids; `--quiet`/`--json` for scripting) |
+| `agentx validate [--project]` | Check a generated project's `agentx.json` for structural issues (unknown framework/provider, mismatched extras, orphaned prompts, …) |
+| `agentx upgrade [--project] [--apply] [--force]` | Re-run the *current* agentx-kit's templates over an existing project and show/apply what changed (dry-run by default; `prompts.json`/`knowledge/` are left alone unless `--force`) |
 | `agentx providers` | List LLM providers + required env vars |
 | `agentx graph [--format ascii\|mermaid\|json]` | Show a project's agents, tools, and flow |
-| `agentx flow [path] [--live\|--serve] [--ui] [--typecheck] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project — static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer, `--typecheck` ruff + ty diagnostics, `--serve` click-to-run with live logs |
+| `agentx flow [path] [--live\|--serve] [--ui] [--typecheck] [--format ascii\|mermaid\|json\|dot]` | Function-call DAG for a file or whole project — static AST, `--live` runtime trace, `--ui` interactive 2D/3D viewer (`--cdn` for a smaller, network-dependent file), `--typecheck` ruff + ty diagnostics, `--serve` click-to-run with live logs |
 | `agentx rag upload/build/list` | Manage a project's RAG knowledge base (PDF/Excel/CSV/Word/…) |
 | `agentx agent run/research/deep` | Run an autonomous, research, or deep agent |
 | `agentx prompt list/set/add/remove` | Manage an existing project's prompts (`-d` opens the dashboard) |
@@ -447,6 +449,13 @@ agentx flow app.py --serve          # click Run in the browser, watch it execute
   but clicking Run/typing a command **does execute real code on your
   machine** — only point it at code you trust. Requires
   `pip install "agentx-kit[server]"`.
+- **`--cdn`** references the 2D/3D graph libraries via CDN `<script src>`
+  tags instead of inlining them (~2MB smaller file) — off by default, since
+  the point of `--ui` is a single file that still works from a plain
+  `file://` URL with no network access.
+- Large or accidental directories are guarded with **`--max-files`**
+  (default 20000) — `agentx flow` errors out instead of silently scanning a
+  huge/unrelated tree with no feedback.
 
 Both `--live` and `--serve` run the target file the same *package-aware* way
 regardless of where you invoke `agentx flow` from: if the file sits inside a
@@ -461,7 +470,8 @@ failing with "attempted relative import with no known parent package".
 | `build_project_flow(root, entry=None)` | Parse every file under a directory, resolving cross-file calls through each file's imports |
 | `trace` / `get_current_flow()` | Decorate functions to record real call order, counts, and timing (async-safe) |
 | `render_ascii` / `render_mermaid` / `render_json` / `render_dot` | One shape, four text export formats |
-| `render_html` | The interactive 2D/3D viewer (`--ui`), with optional `diagnostics`/`serve` params |
+| `register_renderer(name, fn)` / `get_renderer(name)` / `available_renderers()` | Renderer plugin registry — `agentx flow -f <name>` dispatches through it, so third-party code can add a new output format without patching agentx-kit |
+| `render_html` | The interactive 2D/3D viewer (`--ui`), with optional `diagnostics`/`serve`/`cdn` params |
 | `agentx.flow.typecheck.run_typecheck` | ruff + ty wrapper behind `--typecheck` |
 | `agentx.flow.server.build_app` | The local FastAPI app behind `--serve` |
 

@@ -1,0 +1,14 @@
+"""Smoke test for {{ spec.slug }} — confirms the generated project imports
+cleanly and exposes a callable ``run_text``.
+
+Deliberately does not call the LLM (no network access or API key required):
+constructing a chat-model client is safe to do at import time, it's only the
+actual ``.invoke()``/``.stream()`` call that talks to the provider. This just
+catches "the generated project doesn't even import" — missing dependencies,
+a typo in a template, a bad edit to config.py, etc.
+"""
+from {{ pkg }}.{{ "graph" if spec.framework == "langgraph" else "crew" }} import run_text
+
+
+def test_run_text_is_callable() -> None:
+    assert callable(run_text)

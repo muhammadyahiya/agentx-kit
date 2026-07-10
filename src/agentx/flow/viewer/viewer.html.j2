@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>{{ css }}</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>{{ title }}</h1>
+    <input type="text" id="search" placeholder="Search nodes...">
+    <div class="legend">
+      <span class="chip" data-kind="function"><span class="swatch" style="background:#4477AA"></span>function</span>
+      <span class="chip" data-kind="class"><span class="swatch" style="background:#CCBB44"></span>class</span>
+      <span class="chip" data-kind="module"><span class="swatch" style="background:#66CCEE"></span>module</span>
+      <span class="chip" data-kind="external"><span class="swatch" style="background:#999"></span>external</span>
+    </div>
+    <div class="seg" id="detailSeg">
+      <button class="btn" data-level="modules">Modules</button>
+      <button class="btn" data-level="classes">Classes</button>
+      <button class="btn" data-level="full">Full</button>
+    </div>
+    <div class="seg">
+      <button class="btn active" id="view2d">2D</button>
+      <button class="btn" id="view3d">3D (experimental)</button>
+    </div>
+    <button class="btn" id="themeToggle">Toggle theme</button>
+    <button class="btn run" id="runBtn" style="display:none" title="Executes this file on your machine">▶ Run (executes code)</button>
+    <button class="btn stop" id="stopBtn" style="display:none">■ Stop</button>
+  </header>
+  <main id="main">
+    <div id="cy"></div>
+    <div id="graph3d" style="display:none"></div>
+    <aside id="panel"></aside>
+  </main>
+  <div id="logPane">
+    <div class="log-header"><span>Execution log</span><button class="btn-mini" id="closeLog">×</button></div>
+    <div id="logBody"></div>
+    <div class="term-bar">
+      <span class="term-prompt">$</span>
+      <input type="text" id="termInput" placeholder="Run a command, e.g. python main.py (executes on your machine)">
+    </div>
+  </div>
+</div>
+{{ vendor_scripts }}
+<script>window.AGENTX_FLOW_DATA = {{ graph_data }};</script>
+<script>{{ app_js }}</script>
+</body>
+</html>
