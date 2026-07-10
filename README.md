@@ -433,10 +433,14 @@ agentx flow app.py --serve          # click Run in the browser, watch it execute
   stderr and per-function call/return events streamed live into a log pane
   and pulsed onto the graph as they happen; **Stop** ends it. A command box
   in the same log pane doubles as a minimal terminal — type any command
-  (e.g. `python main.py`) and it runs the same way; if it's `python
-  <file>.py` and that file is part of a package, it's run the same
-  package-aware way the Run button does (so relative imports inside it
-  resolve — see below), gaining trace events too. Binds to `127.0.0.1` only
+  (e.g. `streamlit run app.py`) and it runs through your OS's own shell,
+  exactly like typing it in a real terminal (quoting, `&&`, pipes all work;
+  a mistyped or missing command just prints its own "not found" error like
+  a real shell would, it can't crash the server). The one exception: if it's
+  exactly `python <file>.py` and that file is part of a package, it's routed
+  through the same package-aware path the Run button uses (so relative
+  imports inside it resolve — see below), gaining trace events too. Binds
+  to `127.0.0.1` only
   and every action requires a random per-session token embedded in the page,
   but clicking Run/typing a command **does execute real code on your
   machine** — only point it at code you trust. Requires

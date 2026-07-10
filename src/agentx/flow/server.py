@@ -11,10 +11,16 @@ and let the browser stop it.
 The viewer's "Run" button, with no arguments, runs the target file via
 :mod:`agentx.flow._serve_runner` (mirrors ``--live``'s execution path,
 including full call/return trace events). The viewer's command box lets the
-user instead type an arbitrary command (e.g. ``python main.py``) — that runs
-as a plain subprocess (no tracer hook, since we don't control what it does),
-still streamed live, effectively a minimal terminal for driving the project
-from the graph view.
+user instead type an arbitrary command (e.g. ``streamlit run app.py``) —
+that runs through the OS's own shell (``cmd.exe`` on Windows, ``/bin/sh``
+elsewhere), exactly like typing it in a real terminal: no tracer hook (we
+don't control what it does), but pipes/``&&``/quoting all work, and a
+mistyped or missing command just prints its own "not found" error to the
+log like a real shell would — it can't crash the server. The one exception:
+if the command is exactly ``python <script>.py`` and that script turns out
+to be part of a package, it's transparently routed through the same
+``_serve_runner`` path as the default Run button, so it gets relative-import
+support and trace events too.
 
 Import this module only after confirming ``fastapi``/``uvicorn``/
 ``sse_starlette`` are installed (the CLI does this with a guarded,
@@ -31,8 +37,8 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import re
 import secrets
-import shlex
 import subprocess
 import sys
 import threading
@@ -56,28 +62,33 @@ class _Run:
 
 
 _PYTHON_EXE_NAMES = {"python", "python3", Path(sys.executable).name}
+# Matches exactly `<python> <script>.py` (optionally quoted, no extra args) —
+# deliberately narrow. Built from the command *string*, not `shlex.split`:
+# shlex's POSIX-mode backslash handling mangles Windows paths (`C:\Users\...`
+# becomes `C:Users...`), so any tokenizing here has to be regex-based instead.
+_PYTHON_SCRIPT_RE = re.compile(
+    r'^\s*"?(?P<exe>[^\s"]+)"?\s+"?(?P<script>[^\s"]+\.py)"?\s*$'
+)
 
 
-def _maybe_package_aware_rewrite(args: list[str], invocation_cwd: Path) -> list[str]:
+def _maybe_package_aware_rewrite(command: str, invocation_cwd: Path) -> list[str] | None:
     """If the terminal box's typed command is ``python <script>.py`` and that
-    script turns out to be part of a package, route it through
-    ``_serve_runner`` (== :func:`agentx.flow.execrun.run_target`) instead of
-    running it as a literal subprocess — otherwise a perfectly reasonable
+    script turns out to be part of a package, return the args to route it
+    through ``_serve_runner`` (== :func:`agentx.flow.execrun.run_target`)
+    instead of running it literally — otherwise a perfectly reasonable
     ``python main.py`` would hit the exact "attempted relative import with no
     known parent package" failure the default Run button's execution path
     (``execrun.run_target``) already avoids. Also gains trace-event support
-    for free. Any other command (not this exact shape) runs completely
-    unmodified."""
-    if len(args) < 2 or Path(args[0]).name not in _PYTHON_EXE_NAMES:
-        return args
-    script_arg = args[1]
-    if script_arg.startswith("-") or not script_arg.endswith(".py"):
-        return args
-    script = Path(script_arg)
+    for free. Returns ``None`` for any other command shape — the caller runs
+    those through a real shell instead."""
+    m = _PYTHON_SCRIPT_RE.match(command)
+    if not m or Path(m.group("exe")).name not in _PYTHON_EXE_NAMES:
+        return None
+    script = Path(m.group("script"))
     if not script.is_absolute():
         script = invocation_cwd / script
     if not script.exists() or not (script.parent / "__init__.py").exists():
-        return args
+        return None
     return [sys.executable, "-m", "agentx.flow._serve_runner", str(script)]
 
 
@@ -108,20 +119,28 @@ def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, lis
         command = (body or {}).get("command", "").strip()
 
         run_id = secrets.token_hex(8)
+        shell = False
         if command:
-            try:
-                args = shlex.split(command)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=f"could not parse command: {exc}") from exc
-            if not args:
-                raise HTTPException(status_code=400, detail="empty command")
-            args = _maybe_package_aware_rewrite(args, invocation_cwd)
+            rewritten = _maybe_package_aware_rewrite(command, invocation_cwd)
+            if rewritten is not None:
+                args: str | list[str] = rewritten
+            else:
+                # Arbitrary command — hand it to the OS's own shell verbatim,
+                # exactly like typing it in a real terminal (quoting, `&&`,
+                # pipes, and "command not found" all behave the same way; the
+                # latter becomes normal stderr output, not a Python exception).
+                args = command
+                shell = True
         else:
             args = [sys.executable, "-m", "agentx.flow._serve_runner", target_path]
 
-        proc = subprocess.Popen(
-            args, cwd=invocation_cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
-        )
+        try:
+            proc = subprocess.Popen(
+                args, shell=shell, cwd=invocation_cwd,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=400, detail=f"failed to start: {exc}") from exc
         run = _Run(proc)
         runs[run_id] = run
         threading.Thread(target=_run_to_completion, args=(run,), daemon=True).start()

@@ -217,9 +217,12 @@ def graph(
             text = graphviz.introspect_mermaid(root, manifest)
             if text is None:
                 console.print("[dim]# introspection unavailable; showing manifest-derived diagram[/]")
-        console.print(text or graphviz.render_mermaid(manifest, flow))
+        console.print(text or graphviz.render_mermaid(manifest, flow), soft_wrap=True)
     else:
-        console.print(graphviz.render_ascii(manifest, flow))
+        # soft_wrap: this is a preformatted ASCII tree — Rich's default word-wrap
+        # would reflow long lines mid-branch instead of just letting them extend
+        # past the visible width like `tree`/`ls` output does.
+        console.print(graphviz.render_ascii(manifest, flow), soft_wrap=True)
 
 
 @app.command()
@@ -405,11 +408,15 @@ def flow(
         import json as _json
         console.print_json(_json.dumps(flow_lib.render_json(graph_result)))
     elif fmt == "mermaid":
-        console.print(flow_lib.render_mermaid(graph_result), markup=False)
+        console.print(flow_lib.render_mermaid(graph_result), markup=False, soft_wrap=True)
     elif fmt == "dot":
-        console.print(flow_lib.render_dot(graph_result), markup=False)
+        console.print(flow_lib.render_dot(graph_result), markup=False, soft_wrap=True)
     else:
-        console.print(flow_lib.render_ascii(graph_result), markup=False)
+        # soft_wrap: a real project's tree can have deeply-nested, long
+        # module.Class.method names — Rich's default word-wrap would reflow
+        # those lines mid-branch instead of letting them extend past the
+        # visible terminal width like `tree`/`ls` output does.
+        console.print(flow_lib.render_ascii(graph_result), markup=False, soft_wrap=True)
 
 
 @app.command()
