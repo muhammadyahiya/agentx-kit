@@ -17,7 +17,6 @@ _PII_PATTERNS = {
     "credit_card": re.compile(r"\b(?:\d[ -]?){13,16}\b"),
 }
 
-
 class GuardrailError(ValueError):
     """Raised by a guard when input/output is rejected outright."""
 
