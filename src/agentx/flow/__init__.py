@@ -27,8 +27,15 @@ Both produce the same :class:`Flow` shape, rendered via ``render_ascii`` /
 
 Also available from the CLI: ``agentx flow app.py`` (static) and
 ``agentx flow app.py --live`` (runs the file, renders the traced graph).
+
+Point it at a directory instead of a file and :func:`build_project_flow`
+builds a whole-project graph (packages/modules/classes/functions), which
+:func:`render_html` can turn into an interactive 2D/3D DAG viewer —
+``agentx flow --ui``.
 """
+from .htmlgen import render_html
 from .model import Flow, FlowEdge, FlowNode
+from .project import build_project_flow
 from .render import render_ascii, render_dot, render_json, render_mermaid
 from .static import build_static_flow
 from .tracer import get_current_flow, reset_trace, trace
@@ -38,6 +45,7 @@ __all__ = [
     "FlowNode",
     "FlowEdge",
     "build_static_flow",
+    "build_project_flow",
     "trace",
     "get_current_flow",
     "reset_trace",
@@ -45,4 +53,5 @@ __all__ = [
     "render_mermaid",
     "render_json",
     "render_dot",
+    "render_html",
 ]

@@ -90,7 +90,7 @@ def test_static_unknown_entry_errors(tmp_path: Path) -> None:
 def test_missing_file_errors(tmp_path: Path) -> None:
     result = runner.invoke(app, ["flow", str(tmp_path / "nope.py")])
     assert result.exit_code == 1
-    assert "File not found" in result.output
+    assert "Path not found" in result.output
 
 
 def test_live_mode_runs_file_and_shows_traced_calls(tmp_path: Path) -> None:
@@ -126,6 +126,55 @@ if __name__ == "__main__":
     result = runner.invoke(app, ["flow", str(p), "--live"])
     assert result.exit_code == 0
     assert "No traced calls recorded" in result.output
+
+
+def test_directory_path_builds_project_graph(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    _write(tmp_path, "pkg/__init__.py", "")
+    _write(tmp_path, "pkg/a.py", "def foo():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(tmp_path), "-f", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["kind"] == "static"
+    assert any(n["name"] == "pkg.a.foo" for n in data["nodes"])
+
+
+def test_default_path_is_current_directory(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "solo.py", "def only():\n    pass\n")
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["flow", "-f", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert any(n["name"] == "solo.only" for n in data["nodes"])
+
+
+def test_live_mode_rejects_directory(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["flow", str(tmp_path), "--live"])
+    assert result.exit_code == 1
+    assert "single file" in result.output.lower()
+
+
+def test_ui_flag_writes_html_and_skips_browser(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    out = tmp_path / "viewer.html"
+    result = runner.invoke(app, ["flow", str(p), "--ui", "--no-open", "--out", str(out)])
+    assert result.exit_code == 0
+    assert out.exists()
+    html = out.read_text(encoding="utf-8")
+    assert "cytoscape" in html
+    assert '"a"' in html
+
+
+def test_ui_flag_without_out_writes_temp_file(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    result = runner.invoke(app, ["flow", str(p), "--ui", "--no-open"])
+    assert result.exit_code == 0
+    assert "Wrote" in result.output
+    # Rich may hard-wrap a long path across lines; rejoin before parsing it out.
+    flat = result.output.replace("\n", "")
+    written = Path(flat.split("Wrote")[1].strip())
+    assert written.exists()
+    written.unlink()
 
 
 def test_no_external_flag_excludes_stdlib_calls(tmp_path: Path) -> None:

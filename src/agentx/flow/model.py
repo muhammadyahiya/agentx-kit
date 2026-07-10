@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class FlowNode:
-    """One function/method in the flow graph."""
+    """One function/method/class/module in the flow graph."""
 
     name: str
     file: str | None = None
@@ -15,6 +15,9 @@ class FlowNode:
     external: bool = False   # True if not defined in the analyzed file (stdlib/3rd-party)
     calls: int = 0           # runtime: number of times this function was actually invoked
     total_time: float = 0.0  # runtime: cumulative wall-clock seconds across all calls
+    kind: str = "function"   # "package" | "module" | "class" | "function" | "external"
+    module: str | None = None   # dotted module path this node lives in, e.g. "pkg.sub.mod"
+    parent: str | None = None   # containing node's key (method's class, class's module, ...)
 
 
 @dataclass
@@ -34,6 +37,7 @@ class Flow:
     edges: list[FlowEdge] = field(default_factory=list)
     entry: str | None = None
     kind: str = "static"   # "static" (AST) | "runtime" (traced execution)
+    scope: str = "file"    # "file" (single file/runtime graph) | "project" (whole directory)
 
     def add_node(self, name: str, **kwargs) -> FlowNode:
         node = self.nodes.get(name)
