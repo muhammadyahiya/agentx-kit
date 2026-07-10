@@ -155,6 +155,11 @@ def build_static_flow(path: str | Path, *, entry: str | None = None, include_ext
             flow.add_node("__main__")
             flow.add_edge("__main__", resolved)
             inferred_entry = inferred_entry or "__main__"
+        elif include_external:
+            flow.add_node("__main__")
+            flow.add_node(called, external=True)
+            flow.add_edge("__main__", called)
+            inferred_entry = inferred_entry or "__main__"
 
     if entry:
         target = entry if entry in flow.nodes else bare_to_qual.get(entry)
