@@ -198,6 +198,16 @@ def test_ui_cdn_flag_references_cdn_instead_of_inlining(tmp_path: Path) -> None:
     assert "cdn.jsdelivr.net" in html
 
 
+def test_ui_react_flag_writes_react_bundle(tmp_path: Path) -> None:
+    p = _write(tmp_path, "app.py", "def a():\n    pass\n")
+    out = tmp_path / "viewer.html"
+    result = runner.invoke(app, ["flow", str(p), "--ui", "--react", "--no-open", "--out", str(out)])
+    assert result.exit_code == 0
+    html = out.read_text(encoding="utf-8")
+    assert '"a"' in html
+    assert "<script src=" not in html  # still one self-contained file
+
+
 def test_no_external_flag_excludes_stdlib_calls(tmp_path: Path) -> None:
     p = _write(tmp_path, "app.py", """
 import json

@@ -276,3 +276,32 @@ def test_app_js_fuzzy_match_requires_in_order_subsequence() -> None:
     assert fuzzy_score("xyz", "clean_data") is None
     # Tighter/earlier match should score lower (better) than a looser one.
     assert fuzzy_score("cd", "cd_rest") < fuzzy_score("cd", "xxxxxxxxxxc" + "y" * 20 + "d")
+
+
+def test_react_false_by_default_renders_cytoscape_viewer() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow)
+    assert "AGENTX_FLOW_DATA" in html
+    assert "cytoscapeElk" in html  # the default (Cytoscape) viewer's vendor libs
+    assert "react-flow" not in html.lower()
+
+
+def test_react_true_renders_react_bundle_with_real_data() -> None:
+    flow = Flow(scope="project", entry="pkg.mod")
+    flow.add_node("a")
+    html = render_html(flow, react=True)
+    data = _embedded_data(html)
+    assert data["scope"] == "project"
+    assert data["nodes"][0]["id"] == "a"
+    assert "<title>agentx flow — pkg.mod</title>" in html
+    assert "<script src=" not in html  # still one self-contained file, no external refs
+
+
+def test_react_true_embeds_serve_flag_same_as_default_viewer() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow, react=True, serve=True, serve_token="secret123")
+    data = _embedded_data(html)
+    assert data["serve"] is True
+    assert data["serve_token"] == "secret123"

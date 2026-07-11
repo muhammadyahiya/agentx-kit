@@ -75,6 +75,17 @@ def _read_viewer(name: str) -> str:
 
 
 @lru_cache(maxsize=1)
+def _read_react_bundle() -> str:
+    """The experimental React Flow v12 viewer (``--ui --react``): a single
+    self-contained ``index.html`` prebuilt with Vite + ``vite-plugin-singlefile``
+    from ``viewer-react/`` (source lives there; rebuild with ``npm run build``
+    and copy ``viewer-react/dist/index.html`` here — same "vendor a prebuilt
+    artifact" pattern as ``vendor/dagre.min.js`` etc., just produced from our
+    own TypeScript instead of fetched from npm)."""
+    return (_VIEWER_DIR / "react-viewer.html").read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
 def _viewer_env() -> jinja2.Environment:
     """The viewer HTML is a real Jinja2 template (``viewer/viewer.html.j2``)
     instead of a Python string with ``__PLACEHOLDER__``/``str.replace`` —
@@ -234,6 +245,7 @@ def render_html(
     serve: bool = False,
     serve_token: str | None = None,
     cdn: bool = False,
+    react: bool = False,
 ) -> str:
     """Render ``flow`` as one complete, self-contained HTML document.
 
@@ -250,11 +262,24 @@ def render_html(
             tags instead of inlining ~2MB of vendored JS into the file.
             Off by default — the point of ``--ui`` is a single file that
             still works from a plain ``file://`` URL with no network access.
+        react: experimental — render the React Flow v12 viewer
+            (:func:`_read_react_bundle`) instead of the default Cytoscape
+            viewer. Same ``nodes``/``edges``/``serve`` payload contract, just
+            a different frontend; Monaco loads from its own CDN default
+            (unlike the Cytoscape viewer, which pins a specific CDN URL).
     """
     payload = _payload(flow, diagnostics)
     payload["serve"] = serve
     payload["serve_token"] = serve_token
     payload_json = json.dumps(payload).replace("</", "<\\/")
+    if react:
+        data_script = f"<script>window.AGENTX_FLOW_DATA = {payload_json};</script>"
+        title = f"agentx flow — {flow.entry or flow.scope}"
+        html = _read_react_bundle().replace(
+            "<title>agentx flow (React prototype)</title>",
+            f"<title>{title}</title>",
+        )
+        return html.replace("<head>", "<head>\n" + data_script, 1)
     if cdn:
         vendor_scripts = "\n".join(f'<script src="{_CDN_URLS[name]}"></script>' for name in _VENDOR_FILES)
     else:

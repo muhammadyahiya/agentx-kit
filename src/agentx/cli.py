@@ -358,6 +358,11 @@ def flow(
         False, "--typecheck",
         help="Run ruff (lint) + ty (type check) and attach diagnostics to nodes (requires `agentx-kit[typecheck]`).",
     ),
+    react: bool = typer.Option(
+        False, "--react",
+        help="With --ui, use the experimental React Flow v12 viewer (custom node components, ELK layout, "
+             "built-in minimap) instead of the default Cytoscape viewer.",
+    ),
     serve: bool = typer.Option(
         False, "--serve",
         help=(
@@ -497,7 +502,7 @@ def flow(
 
         port = _free_port(8765)
         url = f"http://127.0.0.1:{port}/"
-        app_obj = server_lib.build_app(graph_result, path, diagnostics=diagnostics)
+        app_obj = server_lib.build_app(graph_result, path, diagnostics=diagnostics, react=react)
         console.print(f"[green]Serving at[/] {url}  [dim](binds to 127.0.0.1 only; Ctrl+C to stop)[/]")
         console.print("[yellow]Clicking Run in the viewer executes this file on your machine.[/]")
         if not no_open:
@@ -512,7 +517,7 @@ def flow(
         import tempfile
         import webbrowser
 
-        html = flow_lib.render_html(graph_result, diagnostics=diagnostics, cdn=cdn)
+        html = flow_lib.render_html(graph_result, diagnostics=diagnostics, cdn=cdn, react=react)
         if out:
             out.write_text(html, encoding="utf-8")
             out_path = out

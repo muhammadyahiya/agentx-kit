@@ -118,11 +118,16 @@ exclude = [
     "dist",
     "__pycache__",
     "*.pyc",
+    "node_modules",
 ]
 
 [tool.hatch.build.targets.wheel]
 # Templates (*.j2) live inside the package dir and are included automatically.
 packages = ["src/agentx"]
+# viewer-react/ is TypeScript build *source* for the experimental React Flow
+# viewer — kept in the repo for maintainability but not needed at runtime;
+# only its prebuilt output (viewer/react-viewer.html) ships in the wheel.
+exclude = ["src/agentx/flow/viewer-react"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
