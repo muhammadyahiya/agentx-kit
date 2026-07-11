@@ -74,8 +74,11 @@ agentx flow --ui --no-open -o flow.html # write it without launching a browser
 Nodes are colored by kind (function / class / module / external); a Modules → Classes → Full
 detail control collapses large projects down to a coarse module-to-module graph by default; click
 a node for its full source and file:line, click two nodes to highlight the call path between
-them, search by name, and toggle a secondary experimental 3D view. Dark/light follows your system
-theme with a manual override.
+them, and toggle a secondary experimental 3D view. A corner minimap keeps you oriented on large
+graphs, and **⌘K / Ctrl+K** opens a fuzzy jump-to-node palette (e.g. type `cldt` to jump to
+`clean_data`) alongside the plain search box. Layout defaults to ELK's layered algorithm (fewer
+edge crossings); toggle back to dagre from the header if you prefer it. Dark/light follows your
+system theme with a manual override.
 
 ## Type-checking, schemas & live execution (opt-in)
 
