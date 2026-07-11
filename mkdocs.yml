@@ -1,13 +1,21 @@
 site_name: AgentX-Kit
 site_description: A provider-agnostic agentic framework + interactive project scaffolder for LangChain & CrewAI.
 site_url: https://muhammadyahiya.github.io/agentx-kit/
+site_author: OptimumAI
 repo_name: muhammadyahiya/agentx-kit
 repo_url: https://github.com/muhammadyahiya/agentx-kit
 edit_uri: edit/main/docs/
 docs_dir: docs
+copyright: >
+  Copyright &copy; 2026 OptimumAI — AgentX-Kit is released under the
+  <a href="https://github.com/muhammadyahiya/agentx-kit/blob/main/LICENSE">MIT License</a>.
 
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/dna
+  favicon: assets/favicon.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -31,14 +39,17 @@ theme:
     - navigation.sections
     - navigation.top
     - navigation.indexes
+    - navigation.footer
     - toc.follow
     - search.suggest
     - search.highlight
     - content.code.copy
     - content.code.annotate
     - content.tabs.link
-  icon:
-    repo: fontawesome/brands/github
+    - content.action.edit
+    - content.action.view
+    - header.autohide
+    - announce.dismiss
 
 markdown_extensions:
   - admonition
@@ -67,11 +78,20 @@ plugins:
   - search
 
 extra:
+  generator: false
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/muhammadyahiya/agentx-kit
+      name: Source on GitHub
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/agentx-kit/
+      name: agentx-kit on PyPI
+    - icon: material/book-open-variant
+      link: https://github.com/muhammadyahiya/agentx-kit/blob/main/README.md
+      name: README
+    - icon: material/file-document-outline
+      link: https://github.com/muhammadyahiya/agentx-kit/blob/main/DESIGN.md
+      name: Architecture (DESIGN.md)
 
 nav:
   - Home: index.md
@@ -104,9 +124,10 @@ nav:
       - Editor & assistant integrations: features/editor-integrations.md
       - Response caching: features/caching.md
       - Enterprise pack: features/enterprise.md
-  - Library usage: library-usage.md
+  - Package usage (Python API): library-usage.md
   - Release notes:
       - Overview: releases/index.md
+      - v1.1.0: releases/1.1.0.md
       - v1.0.0: releases/1.0.0.md
       - v0.17.1: releases/0.17.1.md
       - v0.17.0: releases/0.17.0.md
