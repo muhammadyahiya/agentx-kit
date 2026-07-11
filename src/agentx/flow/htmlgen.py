@@ -4,12 +4,14 @@ HTML file — the ``agentx flow --ui`` "side screen".
 The output is a single portable HTML document (works via a plain ``file://``
 URL, no server, no CDN, no Node/npm involved in producing or viewing it):
 graph data + short source snippets are embedded as a JSON blob, and every JS
-dependency (Cytoscape.js + dagre + cytoscape-dagre for the 2D layered view,
-three.js + 3d-force-graph for the experimental 3D toggle) is vendored under
-``flow/vendor/`` and inlined directly into the file. Level-of-detail
-(Modules / Classes / Full) is computed ourselves in-page from the node
-hierarchy rather than relying on a collapse/expand plugin, so aggregated
-edges between collapsed nodes are always exactly the underlying calls.
+dependency (Cytoscape.js + ELK.js/cytoscape-elk for the default layered
+layout, dagre/cytoscape-dagre as an alternate layout, cytoscape-navigator for
+the minimap, three.js + 3d-force-graph for the experimental 3D toggle) is
+vendored under ``flow/vendor/`` and inlined directly into the file.
+Level-of-detail (Modules / Classes / Full) is computed ourselves in-page from
+the node hierarchy rather than relying on a collapse/expand plugin, so
+aggregated edges between collapsed nodes are always exactly the underlying
+calls.
 """
 from __future__ import annotations
 
@@ -27,13 +29,18 @@ _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 _VIEWER_DIR = Path(__file__).resolve().parent / "viewer"
 
 # Load order matters: three.js before 3d-force-graph (peer global `THREE`),
-# cytoscape before its dagre layout extension (peer global `cytoscape`).
+# cytoscape before its dagre/elk/navigator extensions (peer global
+# `cytoscape`), and ELK.js's bundle (defines global `ELK`) before
+# cytoscape-elk (calls `factory(root["ELK"])` at load time).
 _VENDOR_FILES = [
     "three.min.js",
     "3d-force-graph.min.js",
     "cytoscape.min.js",
+    "elk.bundled.min.js",
+    "cytoscape-elk.js",
     "dagre.min.js",
     "cytoscape-dagre.js",
+    "cytoscape-navigator.js",
 ]
 
 # CDN URL for each vendor file, same order/versions as the vendored copies —
@@ -42,8 +49,11 @@ _CDN_URLS = {
     "three.min.js": "https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js",
     "3d-force-graph.min.js": "https://cdn.jsdelivr.net/npm/3d-force-graph@1.71.4/dist/3d-force-graph.min.js",
     "cytoscape.min.js": "https://cdn.jsdelivr.net/npm/cytoscape@3.34.0/dist/cytoscape.min.js",
+    "elk.bundled.min.js": "https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js",
+    "cytoscape-elk.js": "https://cdn.jsdelivr.net/npm/cytoscape-elk@1.2.0/cytoscape-elk.js",
     "dagre.min.js": "https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js",
     "cytoscape-dagre.js": "https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js",
+    "cytoscape-navigator.js": "https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.2/cytoscape-navigator.js",
 }
 
 # Colorblind-safe, kind-coded palette (Okabe-Ito/Tol-muted derived).
@@ -337,6 +347,24 @@ label.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .term-prompt { color: #2ca02c; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 #termInput { flex: 1; background: #0f1012; border: 1px solid #2a2b2f; color: #d8d8d8; border-radius: 4px; padding: 5px 8px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 #termInput:disabled { opacity: 0.5; }
+#cy { position: relative; }
+#navigator.cytoscape-navigator { position: absolute !important; bottom: 10px; right: 10px; top: auto !important; left: auto !important;
+  width: 180px; height: 130px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel-bg); opacity: 0.92; z-index: 50; }
+.cytoscape-navigatorView { background: var(--accent); opacity: 0.35; }
+.cytoscape-navigatorOverlay { z-index: 51; }
+#cmdPalette { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 999; align-items: flex-start; justify-content: center; padding-top: 12vh; }
+#cmdPalette.open { display: flex; }
+#cmdPaletteBox { width: 460px; max-width: 90vw; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.35); overflow: hidden; }
+#cmdInput { width: 100%; box-sizing: border-box; padding: 12px 14px; font-size: 14px; border: none; border-bottom: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+#cmdInput:focus { outline: none; }
+#cmdResults { max-height: 320px; overflow: auto; }
+.cmd-item { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 12.5px; cursor: pointer; }
+.cmd-item .swatch { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.cmd-item .cmd-id { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-item .cmd-kind { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+.cmd-item.active { background: var(--accent); color: #fff; }
+.cmd-item.active .cmd-kind { color: rgba(255,255,255,0.75); }
+.cmd-empty { padding: 14px; color: var(--muted); font-size: 12px; text-align: center; }
 """
 
 

@@ -3,6 +3,7 @@
   const COLORS = DATA.colors;
 
   cytoscape.use(cytoscapeDagre);
+  cytoscape.use(cytoscapeElk);
 
   const root = document.documentElement;
   const savedTheme = localStorage.getItem('agentx-flow-theme');
@@ -75,6 +76,22 @@
     return { nodeEls, edgeEls };
   }
 
+  // Layout engines: ELK (layered, minimizes edge crossings) is the default;
+  // dagre stays available as a fallback/comparison via the header toggle.
+  const LAYOUTS = {
+    elk: {
+      name: 'elk', animate: false,
+      elk: {
+        algorithm: 'layered', 'elk.direction': 'DOWN',
+        'elk.layered.spacing.nodeNodeBetweenLayers': 55, 'elk.spacing.nodeNode': 30,
+        'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      },
+    },
+    dagre: { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 55, animate: false },
+  };
+  let currentLayout = localStorage.getItem('agentx-flow-layout') || 'elk';
+  if (!LAYOUTS[currentLayout]) currentLayout = 'elk';
+
   const cy = cytoscape({
     container: document.getElementById('cy'),
     elements: [],
@@ -109,7 +126,7 @@
       { selector: 'node.running', style: { 'overlay-color': '#F0C808', 'overlay-opacity': 0.45, 'overlay-padding': 6 } },
       { selector: 'node.done-ok', style: { 'overlay-color': '#2ca02c', 'overlay-opacity': 0.3, 'overlay-padding': 6 } },
     ],
-    layout: { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 55, animate: false },
+    layout: LAYOUTS[currentLayout],
     wheelSensitivity: 0.25,
   });
 
@@ -117,6 +134,23 @@
     const visible = cy.nodes(':visible');
     if (visible.length) cy.fit(visible, 40);
   }
+
+  // Minimap (cytoscape-navigator) for orientation on large graphs — lives in
+  // the #navigator div positioned over the bottom-right corner of #cy (see
+  // CSS), and updates itself automatically on every graph change.
+  cy.navigator({ container: '#navigator', viewLiveFramerate: 0, thumbnailEventFramerate: 30, dblClickDelay: 200, rerenderDelay: 100 });
+
+  document.querySelectorAll('#layoutSeg .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.layout === currentLayout);
+    b.addEventListener('click', () => {
+      if (b.dataset.layout === currentLayout) return;
+      currentLayout = b.dataset.layout;
+      localStorage.setItem('agentx-flow-layout', currentLayout);
+      document.querySelectorAll('#layoutSeg .btn').forEach(x => x.classList.toggle('active', x === b));
+      cy.layout(LAYOUTS[currentLayout]).run();
+      fitVisible();
+    });
+  });
 
   let currentLevel = null;
   let adjacency = {};
@@ -132,7 +166,7 @@
     const { nodeEls, edgeEls } = buildElementsForLevel(level);
     cy.elements().remove();
     cy.add(nodeEls.concat(edgeEls));
-    cy.layout({ name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 55, animate: false }).run();
+    cy.layout(LAYOUTS[currentLayout]).run();
     rebuildAdjacency(edgeEls);
     document.querySelectorAll('#detailSeg .btn').forEach(b => b.classList.toggle('active', b.dataset.level === level));
     fitVisible();
@@ -171,6 +205,97 @@
     const matches = cy.nodes().filter(n => n.data('id').toLowerCase().includes(q));
     cy.elements().difference(matches).addClass('faded');
     if (matches.length) cy.animate({ fit: { eles: matches, padding: 40 } }, { duration: 200 });
+  });
+
+  // ⌘K / Ctrl+K fuzzy jump-to-node palette. Subsequence match (like most
+  // editor "go to symbol" pickers): every query character must appear in
+  // order in the candidate, but not necessarily contiguously. Score rewards
+  // tighter, earlier matches so e.g. "cf" ranks "clean_flow" above
+  // "create_something_far".
+  function fuzzyScore(query, target) {
+    if (!query) return 0;
+    let qi = 0;
+    let score = 0;
+    let firstMatch = -1;
+    let lastMatch = -1;
+    for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+      if (target[ti] === query[qi]) {
+        if (firstMatch === -1) firstMatch = ti;
+        lastMatch = ti;
+        qi++;
+      }
+    }
+    if (qi < query.length) return null; // not all query chars matched, in order
+    score = (lastMatch - firstMatch) + firstMatch * 0.5;
+    return score;
+  }
+  const cmdPalette = document.getElementById('cmdPalette');
+  const cmdInput = document.getElementById('cmdInput');
+  const cmdResults = document.getElementById('cmdResults');
+  let cmdMatches = [];
+  let cmdActive = -1;
+
+  function renderCmdResults() {
+    if (!cmdMatches.length) {
+      cmdResults.innerHTML = '<div class="cmd-empty">No matching nodes</div>';
+      return;
+    }
+    cmdResults.innerHTML = cmdMatches.map((n, i) => `
+      <div class="cmd-item${i === cmdActive ? ' active' : ''}" data-id="${esc(n.id)}">
+        <span class="swatch" style="background:${COLORS[n.kind] || COLORS.function}"></span>
+        <span class="cmd-id">${esc(n.id)}</span>
+        <span class="cmd-kind">${esc(n.kind)}</span>
+      </div>`).join('');
+    cmdResults.querySelectorAll('.cmd-item').forEach(el => {
+      el.addEventListener('mouseenter', () => { cmdActive = [...cmdResults.children].indexOf(el); renderCmdResults(); });
+      el.addEventListener('click', () => jumpTo(el.dataset.id));
+    });
+  }
+  function updateCmdMatches() {
+    const q = cmdInput.value.trim().toLowerCase();
+    if (!q) {
+      cmdMatches = DATA.nodes.slice(0, 8);
+    } else {
+      cmdMatches = DATA.nodes
+        .map(n => ({ n, score: fuzzyScore(q, n.id.toLowerCase()) }))
+        .filter(x => x.score !== null)
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 8)
+        .map(x => x.n);
+    }
+    cmdActive = cmdMatches.length ? 0 : -1;
+    renderCmdResults();
+  }
+  function jumpTo(id) {
+    const ele = cy.getElementById(id);
+    closeCmdPalette();
+    if (!ele || !ele.length) return;
+    cy.elements().removeClass('faded');
+    cy.animate({ fit: { eles: ele, padding: 60 } }, { duration: 200 });
+    showPanel(ele);
+  }
+  function openCmdPalette() {
+    cmdPalette.classList.add('open');
+    cmdInput.value = '';
+    updateCmdMatches();
+    cmdInput.focus();
+  }
+  function closeCmdPalette() {
+    cmdPalette.classList.remove('open');
+  }
+  document.getElementById('cmdPaletteBtn').addEventListener('click', openCmdPalette);
+  cmdPalette.addEventListener('click', e => { if (e.target === cmdPalette) closeCmdPalette(); });
+  cmdInput.addEventListener('input', updateCmdMatches);
+  cmdInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeCmdPalette(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); if (cmdMatches.length) { cmdActive = (cmdActive + 1) % cmdMatches.length; renderCmdResults(); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (cmdMatches.length) { cmdActive = (cmdActive - 1 + cmdMatches.length) % cmdMatches.length; renderCmdResults(); } }
+    else if (e.key === 'Enter') { if (cmdActive >= 0) jumpTo(cmdMatches[cmdActive].id); }
+  });
+  window.addEventListener('keydown', e => {
+    const meta = e.metaKey || e.ctrlKey;
+    if (meta && e.key.toLowerCase() === 'k') { e.preventDefault(); openCmdPalette(); }
+    else if (e.key === 'Escape' && cmdPalette.classList.contains('open')) { closeCmdPalette(); }
   });
 
   // Click node -> side panel.
