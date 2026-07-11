@@ -305,3 +305,16 @@ def test_react_true_embeds_serve_flag_same_as_default_viewer() -> None:
     data = _embedded_data(html)
     assert data["serve"] is True
     assert data["serve_token"] == "secret123"
+
+
+def test_node_payload_has_null_git_info_outside_a_repo(tmp_path: Path) -> None:
+    # tmp_path isn't inside a git repo, so gitmeta.node_git_info returns None
+    # for every node — the "git" key must still be present (not omitted).
+    p = tmp_path / "app.py"
+    p.write_text("def a():\n    pass\n", encoding="utf-8")
+    flow = build_static_flow(p)
+    html = render_html(flow)
+    data = _embedded_data(html)
+    node = next(n for n in data["nodes"] if n["id"] == "a")
+    assert "git" in node
+    assert node["git"] is None

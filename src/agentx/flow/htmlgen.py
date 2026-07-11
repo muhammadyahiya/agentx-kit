@@ -22,6 +22,7 @@ from pathlib import Path
 
 import jinja2
 
+from . import gitmeta
 from .model import Flow
 from .schema import build_class_index, extract_pydantic_fields
 
@@ -198,6 +199,7 @@ def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> di
     tree_cache: dict[str, ast.Module | None] = {}
     lines_cache: dict[str, list[str] | None] = {}
     class_index_cache: dict[str, dict[int, ast.ClassDef]] = {}
+    blame_cache: dict[str, dict[int, gitmeta.LineBlame] | None] = {}
     nodes = []
     for name, node in flow.nodes.items():
         kind = "external" if node.external else node.kind
@@ -208,6 +210,7 @@ def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> di
                 if node.file not in class_index_cache:
                     class_index_cache[node.file] = build_class_index(tree)
                 schema = extract_pydantic_fields(tree, node.lineno, class_index_cache[node.file])
+        end_lineno = _def_end_lineno(node.file, node.lineno, tree_cache)
         nodes.append({
             "id": name,
             "label": name.rsplit(".", 1)[-1],
@@ -216,13 +219,14 @@ def _payload(flow: Flow, diagnostics: dict[str, list[dict]] | None = None) -> di
             "parent": node.parent if node.parent in flow.nodes else None,
             "file": node.file,
             "lineno": node.lineno,
-            "end_lineno": _def_end_lineno(node.file, node.lineno, tree_cache),
+            "end_lineno": end_lineno,
             "calls": node.calls,
             "total_time": node.total_time,
             "full_source": _full_source(node.file, node.lineno, tree_cache, lines_cache),
             "signature": _extract_signature(node.file, node.lineno, tree_cache),
             "schema": schema,
             "type_errors": (diagnostics or {}).get(name, []),
+            "git": gitmeta.node_git_info(node.file, node.lineno, end_lineno, blame_cache),
         })
     edges = [
         {"id": f"e{i}", "source": e.src, "target": e.dst, "count": e.count}
@@ -349,6 +353,8 @@ main { flex: 1; display: flex; min-height: 0; }
 #panel .schema-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
 #panel .schema-table th, #panel .schema-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); }
 #panel .schema-table th { color: var(--muted); font-weight: 600; }
+#panel .git-history { color: var(--fg); margin-bottom: 8px; line-height: 1.5; }
+#panel .git-history code { background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
 label.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .btn.run { background: #2ca02c; color: #fff; border-color: #2ca02c; }
 .btn.stop { background: #EE6677; color: #fff; border-color: #EE6677; }

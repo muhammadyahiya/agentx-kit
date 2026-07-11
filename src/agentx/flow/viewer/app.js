@@ -22,6 +22,27 @@
   const byId = {};
   for (const n of DATA.nodes) byId[n.id] = n;
 
+  // Git recency/churn overlay: bucket each node's last-changed timestamp
+  // (from git blame, see gitmeta.py) into a heat category — warm colors for
+  // recently-touched code, cool/neutral for old, nothing for nodes with no
+  // git data (module/package nodes, or files outside a git repo). Toggled
+  // via the header's "Recency" button; persisted like the theme choice.
+  const RECENCY_BUCKETS = [
+    { maxDays: 2, bucket: 'hot' },
+    { maxDays: 14, bucket: 'warm' },
+    { maxDays: 60, bucket: 'mild' },
+    { maxDays: 365, bucket: 'cool' },
+  ];
+  function recencyBucket(git) {
+    if (!git || !git.last_change) return '';
+    const ageDays = (Date.now() / 1000 - git.last_change) / 86400;
+    for (const { maxDays, bucket } of RECENCY_BUCKETS) {
+      if (ageDays <= maxDays) return bucket;
+    }
+    return '';
+  }
+  let recencyOn = localStorage.getItem('agentx-flow-recency') !== 'off';
+
   // Level-of-detail: which kinds are visible at each level, coarsest first.
   const LEVEL_KINDS = {
     modules: new Set(['module', 'package']),
@@ -53,7 +74,10 @@
     const nodeEls = [];
     for (const id of visibleIds) {
       const n = byId[id];
-      const d = { id: n.id, label: n.label, kind: n.kind, calls: n.calls, errCount: (n.type_errors || []).length };
+      const d = {
+        id: n.id, label: n.label, kind: n.kind, calls: n.calls, errCount: (n.type_errors || []).length,
+        gitBucket: recencyOn ? recencyBucket(n.git) : '',
+      };
       let p = n.parent;
       while (p && !visibleIds.has(p)) p = byId[p] ? byId[p].parent : null;
       if (p) d.parent = p;
@@ -123,6 +147,12 @@
         'background-color': '#EE6677', 'z-index': 999,
       } },
       { selector: '.faded', style: { opacity: 0.15 } },
+      // Git recency heat (before running/done-ok so a live-exec pulse always
+      // wins over it while a run is in progress).
+      { selector: 'node[gitBucket = "hot"]', style: { 'overlay-color': '#D7263D', 'overlay-opacity': 0.4, 'overlay-padding': 5 } },
+      { selector: 'node[gitBucket = "warm"]', style: { 'overlay-color': '#F46036', 'overlay-opacity': 0.35, 'overlay-padding': 5 } },
+      { selector: 'node[gitBucket = "mild"]', style: { 'overlay-color': '#F9C74F', 'overlay-opacity': 0.3, 'overlay-padding': 5 } },
+      { selector: 'node[gitBucket = "cool"]', style: { 'overlay-color': '#90BE6D', 'overlay-opacity': 0.22, 'overlay-padding': 5 } },
       { selector: 'node.running', style: { 'overlay-color': '#F0C808', 'overlay-opacity': 0.45, 'overlay-padding': 6 } },
       { selector: 'node.done-ok', style: { 'overlay-color': '#2ca02c', 'overlay-opacity': 0.3, 'overlay-padding': 6 } },
     ],
@@ -187,6 +217,15 @@
   if (!kindFilters.external) {
     document.querySelector('.legend .chip[data-kind="external"]').classList.add('off');
   }
+
+  const recencyToggleBtn = document.getElementById('recencyToggle');
+  recencyToggleBtn.classList.toggle('active', recencyOn);
+  recencyToggleBtn.addEventListener('click', () => {
+    recencyOn = !recencyOn;
+    localStorage.setItem('agentx-flow-recency', recencyOn ? 'on' : 'off');
+    recencyToggleBtn.classList.toggle('active', recencyOn);
+    setDetail(currentLevel);
+  });
 
   const LARGE = DATA.nodes.length > 80;
   if (DATA.scope === 'project') {
@@ -335,6 +374,12 @@
       html += `<div class="section-title">Fields</div><table class="schema-table"><tr><th>name</th><th>type</th><th>default</th><th>req</th></tr>` +
         d.schema.map(f => `<tr><td>${esc(f.name)}</td><td>${esc(f.type)}</td><td>${f.default !== null ? esc(f.default) : '—'}</td><td>${f.required ? 'yes' : ''}</td></tr>`).join('') +
         `</table>`;
+    }
+    if (d.git) {
+      const ageDays = Math.floor((Date.now() / 1000 - d.git.last_change) / 86400);
+      const ageText = ageDays <= 0 ? 'today' : ageDays === 1 ? '1 day ago' : ageDays < 60 ? `${ageDays} days ago` : `${Math.round(ageDays / 30)} months ago`;
+      html += `<div class="section-title">History</div><div class="git-history">` +
+        `changed <b>${ageText}</b> · ${d.git.churn} commit${d.git.churn === 1 ? '' : 's'} touching this range · <code>${esc(d.git.commit)}</code></div>`;
     }
     if (d.full_source) {
       const editable = canEdit && d.file && d.lineno && d.end_lineno;
