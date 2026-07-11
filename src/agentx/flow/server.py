@@ -100,7 +100,13 @@ def _maybe_package_aware_rewrite(command: str, invocation_cwd: Path) -> list[str
     return [sys.executable, "-m", "agentx.flow._serve_runner", str(script)]
 
 
-def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, list[dict]] | None = None) -> FastAPI:
+def build_app(
+    flow: Flow,
+    target_path: str | Path,
+    *,
+    diagnostics: dict[str, list[dict]] | None = None,
+    react: bool = False,
+) -> FastAPI:
     """Build the FastAPI app for ``agentx flow --serve``. Caller binds it to
     ``127.0.0.1`` via uvicorn; this function only wires routes."""
     token = secrets.token_urlsafe(16)
@@ -116,7 +122,7 @@ def build_app(flow: Flow, target_path: str | Path, *, diagnostics: dict[str, lis
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
-        return render_html(flow, diagnostics=diagnostics, serve=True, serve_token=token)
+        return render_html(flow, diagnostics=diagnostics, serve=True, serve_token=token, react=react)
 
     def _sweep_finished_runs() -> None:
         """Drop old finished-run entries so a long `--serve` session doesn't

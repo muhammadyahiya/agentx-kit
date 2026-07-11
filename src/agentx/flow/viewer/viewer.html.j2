@@ -22,19 +22,32 @@
       <button class="btn" data-level="classes">Classes</button>
       <button class="btn" data-level="full">Full</button>
     </div>
+    <div class="seg" id="layoutSeg" title="Graph layout algorithm">
+      <button class="btn" data-layout="elk">ELK</button>
+      <button class="btn" data-layout="dagre">Dagre</button>
+    </div>
     <div class="seg">
       <button class="btn active" id="view2d">2D</button>
       <button class="btn" id="view3d">3D (experimental)</button>
     </div>
     <button class="btn" id="themeToggle">Toggle theme</button>
+    <button class="btn" id="cmdPaletteBtn" title="Jump to node (Ctrl/Cmd+K)">⌘K Jump to…</button>
     <button class="btn run" id="runBtn" style="display:none" title="Executes this file on your machine">▶ Run (executes code)</button>
     <button class="btn stop" id="stopBtn" style="display:none">■ Stop</button>
   </header>
   <main id="main">
-    <div id="cy"></div>
+    <div id="cy">
+      <div id="navigator" class="cytoscape-navigator"></div>
+    </div>
     <div id="graph3d" style="display:none"></div>
     <aside id="panel"></aside>
   </main>
+  <div id="cmdPalette" class="hidden">
+    <div id="cmdPaletteBox">
+      <input type="text" id="cmdInput" placeholder="Jump to a node by name…" autocomplete="off">
+      <div id="cmdResults"></div>
+    </div>
+  </div>
   <div id="logPane">
     <div class="log-header"><span>Execution log</span><button class="btn-mini" id="closeLog">×</button></div>
     <div id="logBody"></div>

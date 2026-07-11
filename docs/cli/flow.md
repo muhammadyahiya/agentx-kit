@@ -29,6 +29,7 @@ the viewer and watch it execute live — and now **edit source directly from the
 | `--cdn` | With `--ui`, reference the 2D/3D graph libraries via CDN instead of inlining ~2MB of JS |
 | `--typecheck` | Run ruff (lint) + ty (type check) and attach diagnostics to nodes (needs `agentx-kit[typecheck]`) |
 | `--serve` | Start a local live-execution server: click Run in the viewer to execute and stream logs (implies `--ui`; single file only; needs `agentx-kit[server]`) |
+| `--react` | With `--ui`, use the experimental React Flow v12 viewer (custom node components, ELK layout, built-in minimap) instead of the default Cytoscape viewer |
 
 ## Text renderers
 
@@ -74,8 +75,26 @@ agentx flow --ui --no-open -o flow.html # write it without launching a browser
 Nodes are colored by kind (function / class / module / external); a Modules → Classes → Full
 detail control collapses large projects down to a coarse module-to-module graph by default; click
 a node for its full source and file:line, click two nodes to highlight the call path between
-them, search by name, and toggle a secondary experimental 3D view. Dark/light follows your system
-theme with a manual override.
+them, and toggle a secondary experimental 3D view. A corner minimap keeps you oriented on large
+graphs, and **⌘K / Ctrl+K** opens a fuzzy jump-to-node palette (e.g. type `cldt` to jump to
+`clean_data`) alongside the plain search box. Layout defaults to ELK's layered algorithm (fewer
+edge crossings); toggle back to dagre from the header if you prefer it. Dark/light follows your
+system theme with a manual override.
+
+### Experimental React Flow v12 viewer (`--react`)
+
+```bash
+agentx flow --ui --react   # same data, a React Flow v12 frontend instead of Cytoscape
+```
+
+A from-scratch rewrite of the viewer on [React Flow v12](https://reactflow.dev/) with custom
+per-kind node components (call/error badges), ELK layered layout, compound/group nodes for the
+module → class → function hierarchy with per-group collapse, and a built-in minimap + controls.
+Same `nodes`/`edges` payload and `--serve` API contract as the default viewer — see
+`src/agentx/flow/viewer-react/README.md` for build/rebuild instructions and current feature
+status. Edit-in-place and the Run/Stop live-execution panel are implemented against the real
+contract but less battle-tested than the default viewer's; treat `--react --serve` as more
+experimental than `--react` alone.
 
 ## Type-checking, schemas & live execution (opt-in)
 

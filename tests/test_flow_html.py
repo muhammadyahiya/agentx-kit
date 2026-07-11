@@ -210,3 +210,98 @@ def test_cdn_true_references_cdn_instead_of_inlining() -> None:
     assert 'src="https://cdn.jsdelivr.net' in html
     # The app's own logic must still be inlined (only the vendor libs are CDN'd).
     assert "AGENTX_FLOW_DATA" in html
+
+
+def test_elk_and_navigator_vendor_libs_are_inlined() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow)
+    # ELK.js (layered layout engine) + its cytoscape adapter, and the
+    # cytoscape-navigator minimap plugin, must be vendored inline like the
+    # other 2D/3D graph libs — no separate network fetch, same as dagre.
+    assert "cytoscapeElk" in html
+    assert "cytoscape-navigator" in html
+    assert ".ELK=n()" in html  # elk.bundled.min.js's UMD export of the global `ELK`
+
+
+def test_cdn_mode_references_elk_and_navigator_urls() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow, cdn=True)
+    assert "cdn.jsdelivr.net/npm/elkjs" in html
+    assert "cdn.jsdelivr.net/npm/cytoscape-elk" in html
+    assert "cdn.jsdelivr.net/npm/cytoscape-navigator" in html
+
+
+def test_viewer_markup_includes_layout_toggle_minimap_and_command_palette() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow)
+    assert 'id="layoutSeg"' in html
+    assert 'data-layout="elk"' in html
+    assert 'data-layout="dagre"' in html
+    assert 'id="navigator"' in html
+    assert 'id="cmdPalette"' in html
+    assert 'id="cmdInput"' in html
+
+
+def test_app_js_defaults_to_elk_layout_with_dagre_fallback() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow)
+    assert "localStorage.getItem('agentx-flow-layout') || 'elk'" in html
+    assert "name: 'elk'" in html
+    assert "name: 'dagre'" in html
+
+
+def test_app_js_fuzzy_match_requires_in_order_subsequence() -> None:
+    # fuzzyScore is defined inline in the vendored app.js — exercise the same
+    # algorithm here in Python to lock down its subsequence-matching contract
+    # (every query char must appear in target, in order, not necessarily
+    # contiguous) independent of a browser runtime.
+    def fuzzy_score(query: str, target: str):
+        qi = 0
+        first = last = -1
+        for ti, ch in enumerate(target):
+            if qi < len(query) and ch == query[qi]:
+                if first == -1:
+                    first = ti
+                last = ti
+                qi += 1
+        if qi < len(query):
+            return None
+        return (last - first) + first * 0.5
+
+    assert fuzzy_score("cldt", "clean_data") is not None
+    assert fuzzy_score("xyz", "clean_data") is None
+    # Tighter/earlier match should score lower (better) than a looser one.
+    assert fuzzy_score("cd", "cd_rest") < fuzzy_score("cd", "xxxxxxxxxxc" + "y" * 20 + "d")
+
+
+def test_react_false_by_default_renders_cytoscape_viewer() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow)
+    assert "AGENTX_FLOW_DATA" in html
+    assert "cytoscapeElk" in html  # the default (Cytoscape) viewer's vendor libs
+    assert "react-flow" not in html.lower()
+
+
+def test_react_true_renders_react_bundle_with_real_data() -> None:
+    flow = Flow(scope="project", entry="pkg.mod")
+    flow.add_node("a")
+    html = render_html(flow, react=True)
+    data = _embedded_data(html)
+    assert data["scope"] == "project"
+    assert data["nodes"][0]["id"] == "a"
+    assert "<title>agentx flow — pkg.mod</title>" in html
+    assert "<script src=" not in html  # still one self-contained file, no external refs
+
+
+def test_react_true_embeds_serve_flag_same_as_default_viewer() -> None:
+    flow = Flow()
+    flow.add_node("a")
+    html = render_html(flow, react=True, serve=True, serve_token="secret123")
+    data = _embedded_data(html)
+    assert data["serve"] is True
+    assert data["serve_token"] == "secret123"

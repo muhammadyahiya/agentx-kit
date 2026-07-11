@@ -38,6 +38,16 @@ def test_index_serves_viewer_without_token(tmp_path: Path) -> None:
     assert "cytoscape" in resp.text
 
 
+def test_index_serves_react_bundle_when_react_true(tmp_path: Path) -> None:
+    p = _write(tmp_path, "def a():\n    pass\n")
+    app = build_app(build_static_flow(p), p, react=True)
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "AGENTX_FLOW_DATA" in resp.text
+    assert '"serve_token"' in resp.text
+
+
 def test_run_without_token_is_rejected(tmp_path: Path) -> None:
     p = _write(tmp_path, "def a():\n    pass\n")
     app = build_app(build_static_flow(p), p)
