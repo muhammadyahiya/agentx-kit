@@ -81,6 +81,14 @@ graphs, and **⌘K / Ctrl+K** opens a fuzzy jump-to-node palette (e.g. type `cld
 edge crossings); toggle back to dagre from the header if you prefer it. Dark/light follows your
 system theme with a manual override.
 
+A **Recency** toggle (on by default, both viewers) colors each node by how recently its code last
+changed — red (last couple days) → orange (last 2 weeks) → yellow (last 2 months) → green (last
+year) → no color (older, or no git history for that file). It's derived from `git blame`, sliced
+per node's line range (cached per file, not one `git log` per node), so it costs one `git blame`
+call per source file regardless of how many functions/classes it contains. Every node's side panel
+also gets a **History** line: how long ago it last changed, how many distinct commits touched that
+line range, and the short hash of the most recent one. No-ops silently outside a git repo.
+
 ### Experimental React Flow v12 viewer (`--react`)
 
 ```bash

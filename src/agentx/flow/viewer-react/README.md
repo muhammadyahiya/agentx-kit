@@ -41,7 +41,9 @@ Verified working end-to-end in a browser against a real generated payload:
 ELK layered layout, custom per-kind node components with call/error badges,
 compound/group nodes (module → class → function, collapsible, re-runs ELK
 layout), built-in minimap + controls, click-node side panel, two-click
-shortest-path highlighting, search-to-fade, dark/light theme toggle.
+shortest-path highlighting, search-to-fade, dark/light theme toggle, and a
+git-blame-derived recency dot per node + History line in the side panel
+(see `agentx.flow.gitmeta`).
 
 Implemented against the exact `server.py` contract but only curl-verified
 (not yet clicked through the live UI against a running `--serve` backend):

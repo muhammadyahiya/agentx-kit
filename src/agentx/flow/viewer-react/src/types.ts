@@ -18,6 +18,12 @@ export interface SchemaField {
   required: boolean;
 }
 
+export interface GitInfo {
+  last_change: number; // unix seconds, from `git blame` (see gitmeta.py)
+  commit: string; // short hash
+  churn: number; // distinct commits touching this node's line range
+}
+
 export interface FlowNodeData {
   id: string;
   label: string;
@@ -33,6 +39,7 @@ export interface FlowNodeData {
   signature: string | null;
   schema: SchemaField[] | null;
   type_errors: TypeError[];
+  git: GitInfo | null;
 }
 
 export interface FlowEdgeData {

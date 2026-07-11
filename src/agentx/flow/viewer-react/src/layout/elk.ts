@@ -114,6 +114,7 @@ export async function layoutGraph(
           calls: flowNode?.calls ?? 0,
           totalTime: flowNode?.total_time ?? 0,
           errCount: flowNode?.type_errors?.length ?? 0,
+          git: flowNode?.git ?? null,
           hasChildren,
           collapsed: isCollapsedGroup,
         },

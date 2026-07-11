@@ -7,6 +7,14 @@ import { saveNodeSource } from "../api";
 // user hasn't clicked "Edit" (or isn't in serve mode at all).
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 
+function formatAge(unixSeconds: number): string {
+  const ageDays = Math.floor((Date.now() / 1000 - unixSeconds) / 86400);
+  if (ageDays <= 0) return "today";
+  if (ageDays === 1) return "1 day ago";
+  if (ageDays < 60) return `${ageDays} days ago`;
+  return `${Math.round(ageDays / 30)} months ago`;
+}
+
 interface Props {
   node: FlowNodeData | null;
   canEdit: boolean;
@@ -113,6 +121,15 @@ export default function SidePanel({ node, canEdit, serveToken, edited, onSaved, 
               ))}
             </tbody>
           </table>
+        </>
+      )}
+      {node.git && (
+        <>
+          <div className="section-title">History</div>
+          <div className="git-history">
+            changed <b>{formatAge(node.git.last_change)}</b> · {node.git.churn} commit
+            {node.git.churn === 1 ? "" : "s"} touching this range · <code>{node.git.commit}</code>
+          </div>
         </>
       )}
       {node.full_source && (
