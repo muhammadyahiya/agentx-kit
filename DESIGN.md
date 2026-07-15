@@ -83,6 +83,17 @@ Both consume the same building blocks so a project can switch frameworks with mi
   counts, and timing during an actual run. Rendered via `render.py`
   (ascii/mermaid/json/dot). Exposed as `agentx flow <file.py>` (`--live` for
   the traced view) and the `agentx.flow` library API.
+- **Azure** (`azure/`) — a production Azure infrastructure layer: 8 service
+  wrappers (Blob, Service Bus, Cosmos DB, Key Vault, Event Grid, Container
+  Apps, Azure ML, Monitor) each Managed-Identity-first with structured
+  logging/correlation IDs/retries baked in, a fluent `AzurePipeline` builder
+  (plan-then-apply — `deploy()` defaults to a dry-run), pre-wired
+  `azure/templates/` (AIOps/MLOps/RAG/Chatbot/DocumentAI), and an
+  `agentx azure` CLI + YAML pipeline config. Extras-gated per service
+  (`azure-blob`, `azure-servicebus`, …, bundled as `azure-platform`); every
+  wrapper lazy-imports its SDK only inside its constructor, so `agentx azure
+  --help` works with zero Azure SDK packages installed. See
+  [docs/features/azure.md](docs/features/azure.md).
 
 Every capability degrades gracefully: if its extra isn't installed, the feature is disabled with a helpful message rather than crashing.
 

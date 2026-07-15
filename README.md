@@ -549,6 +549,37 @@ setup_tracing("my-service")
 llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "claude-3-5-sonnet-latest")])
 ```
 
+## ☁️ Azure AI platform (`agentx.azure`)
+A production Azure infrastructure layer — structured logging, correlation
+IDs, retries, and Managed Identity baked into every wrapper:
+
+```python
+from agentx.azure import AzurePipeline
+
+pipeline = (
+    AzurePipeline(name="document-processing")
+    .blob_storage(container="documents")
+    .service_bus(queue="document-queue")
+    .cosmosdb(database="documents")
+)
+pipeline.deploy()               # plan only — no Azure calls, no credentials needed
+pipeline.deploy(execute=True)   # actually wire each step
+```
+
+- **8 service wrappers**: Blob, Service Bus (with retry/dead-letter), Cosmos DB,
+  Key Vault (TTL-cached secrets), Event Grid, Container Apps (Dockerfile/KEDA
+  manifest generation + live deploy), Azure ML (train/register/deploy), Azure
+  Monitor (OpenTelemetry).
+- **Templates**: `AIOpsPipeline`, `MLOpsPipeline`, `RAGPipeline` (reuses
+  `agentx.rag`), `ChatbotPipeline`, `DocumentAIPipeline`.
+- **CLI**: `agentx azure init|create|plan|deploy|destroy` + a YAML pipeline config.
+
+```bash
+pip install "agentx-kit[azure-platform]"   # everything above
+```
+
+See [docs/features/azure.md](docs/features/azure.md) for credential resolution, the full wrapper/template table, and the CLI reference.
+
 ## Installation extras
 | Extra | Installs | For |
 |---|---|---|
@@ -570,6 +601,8 @@ llm = build_resilient_chat("openai", "gpt-4o-mini", fallbacks=[("anthropic", "cl
 | `streamlit` | `streamlit` | Streamlit chat/voice UI |
 | `dashboard` | `streamlit`, `tiktoken`, `pandas` | prompt observability dashboard |
 | `connector` | `mcp` | MCP server for Claude/Copilot/Codex |
+| `azure-blob` / `azure-servicebus` / `azure-cosmos` / `azure-keyvault` / `azure-eventgrid` / `azure-containerapp` / `azure-ml` / `azure-monitor` / `azure-documentai` | matching `azure-*` SDK + `azure-identity` | one `agentx.azure` service each |
+| `azure-platform` | all of the above + `pyyaml` | full `agentx.azure` (wrappers, templates, CLI) |
 | `all` | everything above | kitchen sink |
 
 See [DESIGN.md](DESIGN.md) for the architecture and [RESEARCH.md](RESEARCH.md) for the competitive analysis behind these features.

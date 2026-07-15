@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from agentx.flow import build_project_flow, build_static_flow, render_html
-from agentx.flow.model import Flow, FlowNode
+from agentx.flow.model import Flow
 
 
 def _embedded_data(html: str) -> dict:

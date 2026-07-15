@@ -1,0 +1,47 @@
+name: CI
+
+# Lint + typecheck + test on every push/PR. This is the gate publish.yml
+# doesn't provide — a tag push publishes to PyPI regardless of test state, so
+# this workflow is what actually blocks a broken change from merging.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Create venv
+        run: uv venv .venv
+      - name: Install
+        run: uv pip install --python .venv -e ".[typecheck]"
+      - name: ruff
+        run: .venv/bin/ruff check src/ tests/
+      - name: ty
+        run: .venv/bin/ty check src/agentx || true # advisory until the whole codebase is annotated
+
+  test:
+    name: Test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Create venv
+        run: uv venv .venv --python ${{ matrix.python-version }}
+      # `all` covers every framework/provider extra the test suite imports
+      # (langgraph, crewai, rag, mcp, voice, server, …) plus agentx.azure.
+      - name: Install
+        run: uv pip install --python .venv -e ".[dev,all]"
+      - name: pytest
+        run: .venv/bin/python -m pytest --cov=agentx --cov-report=term-missing

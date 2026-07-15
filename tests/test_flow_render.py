@@ -43,7 +43,7 @@ class TestRenderAscii:
         assert "▼" in text
         # Nodes appear in call order.
         lines = text.splitlines()
-        order = [l for l in lines if l not in ("○ Start", " │", " ▼")]
+        order = [line for line in lines if line not in ("○ Start", " │", " ▼")]
         assert order == ["preprocess", "load_csv", "clean_data", "validate"]
 
     def test_branching_uses_tree_style(self) -> None:

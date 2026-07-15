@@ -82,7 +82,6 @@ def test_load_mcp_tools_safe_inside_running_loop():
     running event loop (lazy tool assembly inside an async graph node)."""
     import asyncio
 
-    from agentx.tools import load_mcp_tools
 
     async def _inside_loop():
         # Empty config → returns [] fast, but must not raise a loop error even

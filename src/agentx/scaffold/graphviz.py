@@ -140,7 +140,6 @@ def render_ascii(manifest: dict, flow: ManifestFlow) -> str:
     orchestration = manifest.get("orchestration", "")
     provider = manifest.get("provider", "")
     model = manifest.get("model", "")
-    prompts = _load_prompts(Path.cwd()) if False else {}
 
     lines = [f"{name}  ({framework}"
              + (f" · {orchestration}" if len(manifest.get('agents', [])) > 1 else "")
