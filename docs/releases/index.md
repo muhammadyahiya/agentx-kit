@@ -6,6 +6,7 @@ Per-version notes for notable releases. See the full history on
 
 | Version | Highlights |
 |---|---|
+| [v1.4.0](1.4.0.md) | `agentx.azure` — Azure AI platform layer (wrappers, templates, CLI) + repo CI |
 | [v1.1.0](1.1.0.md) | Flow viewer edit-in-place + full documentation site |
 | [v1.0.0](1.0.0.md) | Architecture cleanup + full roadmap feature set |
 | [v0.17.1](0.17.1.md) | QA sprint fixes |

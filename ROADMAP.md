@@ -41,3 +41,10 @@ run; the graph imports without any provider dependency installed.
 **Ecosystem**
 - [ ] Plugin API for third-party tools/providers/embedders.
 - [ ] Template registry (`agentx new --from <template>`), e.g. `rag-chatbot`, `voice-assistant`, `research-crew`.
+
+**Azure AI platform (`agentx.azure`) — fast-follow after the initial 8-wrapper release**
+- [ ] Azure AI Search as a `RAGPipeline` vector-store backend (currently FAISS/Chroma/keyword only, same as `agentx.rag`).
+- [ ] Bicep/Terraform IaC generation alongside `ContainerAppService`'s Dockerfile/manifest output.
+- [ ] GPU VM worker template (CUDA/vLLM install + FastAPI/NGINX), per the original design doc.
+- [ ] Azure Cache for Redis wiring for `ChatbotPipeline` (cross-instance session sharing; Cosmos-only today).
+- [ ] Live-deploy integration tests against Azurite/real Azure sandbox (current suite is mock-only — no live subscription in CI yet).

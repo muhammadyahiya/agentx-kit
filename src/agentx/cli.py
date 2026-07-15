@@ -1143,5 +1143,13 @@ def agent_deep(
         raise typer.Exit(1)
 
 
+# --------------------------------------------------------------------------- #
+# `agentx azure …` — scaffold, plan, and deploy Azure AI pipelines
+# --------------------------------------------------------------------------- #
+from .azure.cli import azure_app  # noqa: E402
+
+app.add_typer(azure_app, name="azure")
+
+
 if __name__ == "__main__":
     app()

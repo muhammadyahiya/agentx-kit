@@ -112,6 +112,7 @@ nav:
       - dashboard: cli/dashboard.md
       - cache: cli/cache.md
       - mcp: cli/mcp.md
+      - azure: cli/azure.md
       - providers / version: cli/misc.md
   - Features:
       - Project scaffolding: features/scaffolding.md
@@ -124,9 +125,11 @@ nav:
       - Editor & assistant integrations: features/editor-integrations.md
       - Response caching: features/caching.md
       - Enterprise pack: features/enterprise.md
+      - Azure AI platform: features/azure.md
   - Package usage (Python API): library-usage.md
   - Release notes:
       - Overview: releases/index.md
+      - v1.4.0: releases/1.4.0.md
       - v1.1.0: releases/1.1.0.md
       - v1.0.0: releases/1.0.0.md
       - v0.17.1: releases/0.17.1.md
