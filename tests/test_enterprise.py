@@ -13,7 +13,7 @@ from agentx.guardrails import (
 )
 from agentx.observability import setup_tracing, telemetry_enabled
 from agentx.reliability import UsageLimitExceeded, UsageLimits, UsageTracker
-from agentx.scaffold import AgentSpec, ProjectSpec, generate_project
+from agentx.scaffold import ProjectSpec, generate_project
 from agentx.scaffold.generator import _extras
 
 

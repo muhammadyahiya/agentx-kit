@@ -10,7 +10,6 @@ from agentx.agents import (
     AgentResult,
     AutonomousAgent,
     AutonomousAgentConfig,
-    ResearchAgent,
     ResearchAgentConfig,
     ResearchResult,
 )

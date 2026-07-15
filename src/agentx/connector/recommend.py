@@ -85,7 +85,6 @@ def recommend_spec(problem_statement: str) -> dict:
                  "microservice", "webhook", "chat ui", "web app")
     production = _has(text, "production", "enterprise", "scalable", "observability",
                       "monitor", "trace", "secure", "reliable", "deploy", "high traffic")
-    coding = _has(text, "coding", "write code", "code generation", "programming task")
     cache = _has(text, "cache", "cost", "cheap", "latency", "high traffic", "high-traffic",
                  "fast response", "reduce cost", "save money", "repeated")
 
